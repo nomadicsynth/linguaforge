@@ -4,14 +4,16 @@ from datasets import load_dataset
 import torch
 
 # Model settings
-hidden_layers = 20  # Number of transformer layers
-attention_heads = 16  # Number of attention heads
-context_length = 2048  # Length of the input context
+hidden_layers = 8  # Number of transformer layers
+hidden_size = 1024  # Size of the hidden states in the transformer layers
+intermediate_size = 2048  # Size of the feed-forward network in the transformer layers
+attention_heads = 32  # Number of attention heads
+context_length = 1024  # Length of the input context
 
 # Training settings
 epochs = 5  # Number of training epochs
-batch_size = 1  # Number of sequences to process in parallel
-gradient_accumulation_steps = 10  # Number of updates steps to accumulate before performing a backward/update pass
+batch_size = 8  # Number of sequences to process in parallel
+gradient_accumulation_steps = 10  # Number of update steps to accumulate before performing a backward pass
 logging_steps = 1  # Log training loss every X steps
 warmup_steps = 100 / gradient_accumulation_steps  # Number of warmup steps for the learning rate scheduler
 
@@ -98,8 +100,8 @@ print(f"Using device: {device}")
 # Configuration for a hypothetical 1B parameter model
 config_1B = LlamaConfig(
     vocab_size=32000,
-    hidden_size=1024,
-    intermediate_size=4096,
+    hidden_size=hidden_size,
+    intermediate_size=intermediate_size,
     num_hidden_layers=hidden_layers,
     num_attention_heads=attention_heads,
     max_position_embeddings=context_length,
@@ -167,6 +169,11 @@ trainer = Trainer(
     train_dataset=tokenized_train,
     eval_dataset=tokenized_eval,
 )
+
+# Count the number of parameters in the model and print it in billions (B) or millions (M), if applicable
+num_params = sum(p.numel() for p in model.parameters())
+print("Number of parameters: {num_params/1e9:.2f}B" if num_params >
+      1e9 else f"Number of parameters: {num_params/1e6:.2f}M")
 
 # Start training
 trainer.train()
