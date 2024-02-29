@@ -41,13 +41,18 @@ class CustomLlamaModel(LlamaForCausalLM):
         )
 
         # If labels are provided, calculate the loss
+        # if labels is not None:
+        #     # Shift the logits and labels for loss calculation
+        #     shift_logits = outputs.logits[..., :-1, :].contiguous()
+        #     shift_labels = labels[..., 1:].contiguous()
+        #     # Calculate loss
+        #     loss_fct = torch.nn.CrossEntropyLoss()
+        #     loss = loss_fct(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
         if labels is not None:
-            # Shift the logits and labels for loss calculation
-            shift_logits = outputs.logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Calculate loss
+            # Directly use outputs for loss calculation without shifting
             loss_fct = torch.nn.CrossEntropyLoss()
-            loss = loss_fct(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
+            # Ignore the prediction for the first token since we don't have a true label for it
+            loss = loss_fct(outputs.logits[:, :-1, :].contiguous().view(-1, self.config.vocab_size), labels[:, 1:].contiguous().view(-1))
 
             return CausalLMOutputWithPast(
                 loss=loss,
@@ -79,7 +84,7 @@ config_1B = LlamaConfig(
 
 # Initialize the model with bfloat16 precision
 model = CustomLlamaModel(config_1B)
-model = model.half()  # Convert model parameters to bfloat16
+# model = model.half()  # Convert model parameters to bfloat16
 model = model.to(device)  # Move model to GPU
 model = model.train()  # Set model to training mode
 
@@ -89,13 +94,13 @@ tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-seque
 
 # Prepare dataset (example using 'wikimedia/wikipedia', '20231101.en' subset)
 dataset = load_dataset("D:/ai-stuff/datasets/wikipedia", "20231101.en")
-small_train_dataset = dataset["train"].select(range(1000))  # Smaller subset for quick experiments
-small_eval_dataset = dataset["train"].select(range(1000, 1100))
+small_train_dataset = dataset["train"].select(range(10000))
+small_eval_dataset = dataset["train"].select(range(10000, 11000))
 
 
 # Tokenize the dataset
 def tokenize_function(examples):
-    tokenized_inputs = tokenizer(examples["text"], padding="max_length", truncation=True, max_length=512)
+    tokenized_inputs = tokenizer(examples["text"], padding="max_length", truncation=True, max_length=2048)
 
     # Shift the input ids to the left to create the labels so that the model predicts the next token.
     # The label for the last token is set to -100, so it's ignored by the loss function.
@@ -110,20 +115,21 @@ tokenized_eval = small_eval_dataset.map(tokenize_function, batched=True)
 # TrainingArguments setup
 training_args = TrainingArguments(
     output_dir="./results",
-    num_train_epochs=5,  # Keep it low for testing
-    per_device_train_batch_size=4,
-    per_device_eval_batch_size=4,
-    warmup_steps=500,
-    weight_decay=0.01,
+    num_train_epochs=5,
+    per_device_train_batch_size=1,
+    per_device_eval_batch_size=1,
+    warmup_steps=100,
+    learning_rate=5e-5,
+    lr_scheduler_type="linear",
     logging_dir="./logs",
-    logging_steps=10,
-    evaluation_strategy="steps",
-    eval_steps=100,
-    save_strategy="steps",
-    save_steps=100,
-    load_best_model_at_end=True,
-    metric_for_best_model="loss",
-    gradient_accumulation_steps=16,
+    logging_steps=1,
+    evaluation_strategy="epoch",
+    eval_steps=0.25,
+    save_strategy="epoch",
+    save_steps=0.25,
+    # load_best_model_at_end=True,
+    # metric_for_best_model="loss",
+    gradient_accumulation_steps=1,
     bf16=True,  # Enable mixed-precision training
     bf16_full_eval=True,  # Enable mixed-precision evaluation
     optim="adamw_torch",  # Use PyTorch's AdamW optimizer
