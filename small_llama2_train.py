@@ -3,11 +3,40 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from datasets import load_dataset
 import torch
 
+# Model settings
+hidden_layers = 20  # Number of transformer layers
+attention_heads = 16  # Number of attention heads
+context_length = 2048  # Length of the input context
 
+# Training settings
+epochs = 5  # Number of training epochs
+batch_size = 1  # Number of sequences to process in parallel
+gradient_accumulation_steps = 10  # Number of updates steps to accumulate before performing a backward/update pass
+logging_steps = 1  # Log training loss every X steps
+warmup_steps = 100 / gradient_accumulation_steps  # Number of warmup steps for the learning rate scheduler
+
+run_dir = "./runs"
+output_dir = "./results"
+logging_dir = "./logs"
+final_dir = "./final"
+
+learning_rate = 5e-5
+lr_scheduler_type = "linear"
+optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
+
+evaluation_strategy = "epoch"
+eval_steps = 0.25
+save_strategy = "epoch"
+save_steps = 0.25
+
+load_best_model_at_end = True
+metric_for_best_model = "loss"
+
+
+# Custom model class to override the forward method
 class CustomLlamaModel(LlamaForCausalLM):
     def __init__(self, config):
         super().__init__(config)
-
 
     def forward(
         self,
@@ -40,19 +69,15 @@ class CustomLlamaModel(LlamaForCausalLM):
             cache_position=cache_position,
         )
 
-        # If labels are provided, calculate the loss
-        # if labels is not None:
-        #     # Shift the logits and labels for loss calculation
-        #     shift_logits = outputs.logits[..., :-1, :].contiguous()
-        #     shift_labels = labels[..., 1:].contiguous()
-        #     # Calculate loss
-        #     loss_fct = torch.nn.CrossEntropyLoss()
-        #     loss = loss_fct(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
+        # If labels are provided, calculate the loss.
+        # TODO: Find out why the default loss calculation is not working, which required this custom forward method.
         if labels is not None:
-            # Directly use outputs for loss calculation without shifting
             loss_fct = torch.nn.CrossEntropyLoss()
             # Ignore the prediction for the first token since we don't have a true label for it
-            loss = loss_fct(outputs.logits[:, :-1, :].contiguous().view(-1, self.config.vocab_size), labels[:, 1:].contiguous().view(-1))
+            loss = loss_fct(
+                outputs.logits[:, :-1, :].contiguous().view(-1, self.config.vocab_size),
+                labels[:, 1:].contiguous().view(-1)
+            )
 
             return CausalLMOutputWithPast(
                 loss=loss,
@@ -75,9 +100,9 @@ config_1B = LlamaConfig(
     vocab_size=32000,
     hidden_size=1024,
     intermediate_size=4096,
-    num_hidden_layers=24,
-    num_attention_heads=16,
-    max_position_embeddings=2048,
+    num_hidden_layers=hidden_layers,
+    num_attention_heads=attention_heads,
+    max_position_embeddings=context_length,
     pad_token_id=2,
     torch_dtype="bfloat16"
 )
@@ -100,7 +125,7 @@ small_eval_dataset = dataset["train"].select(range(10000, 11000))
 
 # Tokenize the dataset
 def tokenize_function(examples):
-    tokenized_inputs = tokenizer(examples["text"], padding="max_length", truncation=True, max_length=2048)
+    tokenized_inputs = tokenizer(examples["text"], padding="max_length", truncation=True, max_length=context_length)
 
     # Shift the input ids to the left to create the labels so that the model predicts the next token.
     # The label for the last token is set to -100, so it's ignored by the loss function.
@@ -115,24 +140,24 @@ tokenized_eval = small_eval_dataset.map(tokenize_function, batched=True)
 # TrainingArguments setup
 training_args = TrainingArguments(
     output_dir="./results",
-    num_train_epochs=5,
-    per_device_train_batch_size=1,
-    per_device_eval_batch_size=1,
-    warmup_steps=100,
-    learning_rate=5e-5,
-    lr_scheduler_type="linear",
-    logging_dir="./logs",
-    logging_steps=1,
-    evaluation_strategy="epoch",
-    eval_steps=0.25,
-    save_strategy="epoch",
-    save_steps=0.25,
-    # load_best_model_at_end=True,
-    # metric_for_best_model="loss",
-    gradient_accumulation_steps=1,
+    num_train_epochs=epochs,
+    per_device_train_batch_size=batch_size,
+    per_device_eval_batch_size=batch_size,
+    warmup_steps=warmup_steps,
+    learning_rate=learning_rate,
+    lr_scheduler_type=lr_scheduler_type,
+    logging_dir=logging_dir,
+    logging_steps=logging_steps,
+    evaluation_strategy=evaluation_strategy,
+    eval_steps=eval_steps,
+    save_strategy=save_strategy,
+    save_steps=save_steps,
+    load_best_model_at_end=load_best_model_at_end,
+    metric_for_best_model=metric_for_best_model,
+    gradient_accumulation_steps=gradient_accumulation_steps,
     bf16=True,  # Enable mixed-precision training
     bf16_full_eval=True,  # Enable mixed-precision evaluation
-    optim="adamw_torch",  # Use PyTorch's AdamW optimizer
+    optim=optim,
 )
 
 # Initialize Trainer
@@ -147,4 +172,4 @@ trainer = Trainer(
 trainer.train()
 
 # Save the trained model
-model.save_pretrained("./custom_llama_1B_model")
+model.save_pretrained(output_dir)
