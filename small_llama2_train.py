@@ -1,29 +1,44 @@
-from transformers import LlamaForCausalLM, LlamaConfig, AutoTokenizer, TrainingArguments, Trainer
-from transformers.modeling_outputs import CausalLMOutputWithPast
-from datasets import load_dataset
+import json
+import matplotlib.pyplot as plt
+import os
+import time
 import torch
+from CustomLlamaModel import CustomLlamaModel
+from datasets import load_dataset, Dataset
+from transformers import LlamaConfig, AutoTokenizer, TrainingArguments, Trainer, TrainerCallback
+
 
 # Model settings
-hidden_layers = 8  # Number of transformer layers
+hidden_layers = 12  # Number of transformer layers
 hidden_size = 1024  # Size of the hidden states in the transformer layers
 intermediate_size = 2048  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
-context_length = 1024  # Length of the input context
+context_length = 2048  # Length of the input context
+stride = 50  # Stride for splitting the input into multiple sequences
+
+# Dataset settings
+dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
+dataset_config = "20231101.en"  # Configuration of the dataset to use
+dataset_path = "D:/ai-stuff/datasets/wikipedia"  # Path to the dataset
+dataset_size = 20000  # Number of examples to use from the dataset. 0 means all examples
+dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
-epochs = 5  # Number of training epochs
-batch_size = 8  # Number of sequences to process in parallel
+seed = 42
+epochs = 7  # Number of training epochs
+batch_size = 3  # Number of sequences to process in parallel
 gradient_accumulation_steps = 10  # Number of update steps to accumulate before performing a backward pass
 logging_steps = 1  # Log training loss every X steps
-warmup_steps = 100 / gradient_accumulation_steps  # Number of warmup steps for the learning rate scheduler
+# warmup_steps = 100 / gradient_accumulation_steps  # Number of warmup steps for the learning rate scheduler
+warmup_steps = 100  # Number of warmup steps for the learning rate scheduler
 
-run_dir = "./runs"
-output_dir = "./results"
-logging_dir = "./logs"
+run = "2"
+output_dir = "./results/run-" + run
+logging_dir = output_dir + "/logs"
 final_dir = "./final"
 
-learning_rate = 5e-5
-lr_scheduler_type = "linear"
+learning_rate = 5e-7
+lr_scheduler_type = "cosine"
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 
 evaluation_strategy = "epoch"
@@ -34,66 +49,40 @@ save_steps = 0.25
 load_best_model_at_end = True
 metric_for_best_model = "loss"
 
+# Write the configuration to a JSON file
+training_config = {
+    "hidden_layers": hidden_layers,
+    "hidden_size": hidden_size,
+    "intermediate_size": intermediate_size,
+    "attention_heads": attention_heads,
+    "context_length": context_length,
+    "stride": stride,
+    "seed": seed,
+    "epochs": epochs,
+    "batch_size": batch_size,
+    "gradient_accumulation_steps": gradient_accumulation_steps,
+    "logging_steps": logging_steps,
+    "warmup_steps": warmup_steps,
+    "learning_rate": learning_rate,
+    "lr_scheduler_type": lr_scheduler_type,
+    "optim": optim,
+    "evaluation_strategy": evaluation_strategy,
+    "eval_steps": eval_steps,
+    "save_strategy": save_strategy,
+    "save_steps": save_steps,
+    "load_best_model_at_end": load_best_model_at_end,
+    "metric_for_best_model": metric_for_best_model,
+    "start_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+}
 
-# Custom model class to override the forward method
-class CustomLlamaModel(LlamaForCausalLM):
-    def __init__(self, config):
-        super().__init__(config)
+# Create the output directory if it doesn't exist
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 
-    def forward(
-        self,
-        input_ids=None,
-        attention_mask=None,
-        position_ids=None,
-        past_key_values=None,
-        inputs_embeds=None,
-        labels=None,
-        use_cache=None,
-        output_attentions=None,
-        output_hidden_states=None,
-        return_dict=None,
-        cache_position=None,
-    ):
-        # Ensure return_dict is True to work with Trainer properly
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+with open(output_dir + "/training_config.json", "w") as f:
+    json.dump(training_config, f, indent=4)
 
-        outputs = super().forward(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
-            labels=labels,
-            use_cache=use_cache,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=True,  # Force return_dict to True for compatibility
-            cache_position=cache_position,
-        )
-
-        # If labels are provided, calculate the loss.
-        # TODO: Find out why the default loss calculation is not working, which required this custom forward method.
-        if labels is not None:
-            loss_fct = torch.nn.CrossEntropyLoss()
-            # Ignore the prediction for the first token since we don't have a true label for it
-            loss = loss_fct(
-                outputs.logits[:, :-1, :].contiguous().view(-1, self.config.vocab_size),
-                labels[:, 1:].contiguous().view(-1)
-            )
-
-            return CausalLMOutputWithPast(
-                loss=loss,
-                logits=outputs.logits,
-                past_key_values=outputs.past_key_values,
-                hidden_states=outputs.hidden_states,
-                attentions=outputs.attentions,
-            )
-
-        # If no labels, just return the original model output
-        return outputs
-
-
-# Ensure your GPU is available
+# Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
@@ -119,29 +108,62 @@ model = model.train()  # Set model to training mode
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 
-# Prepare dataset (example using 'wikimedia/wikipedia', '20231101.en' subset)
-dataset = load_dataset("D:/ai-stuff/datasets/wikipedia", "20231101.en")
-small_train_dataset = dataset["train"].select(range(10000))
-small_eval_dataset = dataset["train"].select(range(10000, 11000))
+# Prepare dataset
+print("Loading the dataset...")
+dataset = load_dataset(dataset_path, dataset_config)
+
+# Select the first dataset_size examples from the training set
+if dataset_size > 0:
+    print("Selecting the first", dataset_size, "examples from the dataset...")
+    dataset = dataset["train"].select(range(dataset_size))
+else:
+    dataset_size = len(dataset["train"])
+    print("Using the entire dataset of size", dataset_size)
+    dataset = dataset["train"]
+
+# Shuffling the dataset
+print("Shuffling the dataset...")
+dataset = dataset.shuffle(seed=seed)
+
+# Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
+print("Splitting the dataset into training and evaluation sets...")
+print("Training set size:", int(dataset_size * dataset_split))
+print("Evaluation set size:", dataset_size - int(dataset_size * dataset_split))
+dataset = dataset.train_test_split(test_size=1-dataset_split, seed=seed)
 
 
 # Tokenize the dataset
 def tokenize_function(examples):
-    tokenized_inputs = tokenizer(examples["text"], padding="max_length", truncation=True, max_length=context_length)
+    # Tokenize all texts and return overflow tokens as separate examples
+    tokenized_batches = tokenizer(
+        examples["text"],
+        padding="max_length",
+        truncation=True,
+        max_length=context_length,
+        return_overflowing_tokens=True,
+        stride=stride,
+        return_tensors="pt"
+    )
 
     # Shift the input ids to the left to create the labels so that the model predicts the next token.
     # The label for the last token is set to -100, so it's ignored by the loss function.
-    tokenized_inputs["labels"] = [row[1:] + [-100] for row in tokenized_inputs["input_ids"]]
+    tokenized_batches["labels"] = tokenized_batches.input_ids.clone()
+    tokenized_batches["labels"][:, :-1] = tokenized_batches["labels"][:, 1:].clone()
+    tokenized_batches["labels"][:, -1] = -100
 
-    return tokenized_inputs
+    return Dataset.from_dict(tokenized_batches)
 
 
-tokenized_train = small_train_dataset.map(tokenize_function, batched=True)
-tokenized_eval = small_eval_dataset.map(tokenize_function, batched=True)
+# Tokenize the training and evaluation sets
+print("Tokenizing the dataset...")
+print("Tokenizing the training set...")
+tokenized_train = tokenize_function(dataset["train"])
+print("Tokenizing the evaluation set...")
+tokenized_eval = tokenize_function(dataset["test"])
 
 # TrainingArguments setup
 training_args = TrainingArguments(
-    output_dir="./results",
+    output_dir=output_dir,
     num_train_epochs=epochs,
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
@@ -162,7 +184,55 @@ training_args = TrainingArguments(
     optim=optim,
 )
 
-# Initialize Trainer
+
+# Custom callback to plot the loss during training
+class PlotLossesCallback(TrainerCallback):
+    def __init__(self, trainer: Trainer):
+        self.losses = []
+        self.eval_losses = []
+        self.learning_rates = []
+        self.trainer = trainer
+        self.fig, self.ax1 = plt.subplots()
+        self.ax2 = self.ax1.twinx()
+        plt.title('Training and Evaluation loss and learning rate')
+        # Set the plot size to 1280x480 pixels
+        self.fig.set_size_inches(12.8, 4.8)
+        plt.show(block=False)
+
+    def on_log(self, args, state, control, logs=None, **kwargs):
+        if 'eval_loss' in logs:
+            # Remove the last element from the list if it's None
+            if self.eval_losses and self.eval_losses[-1] is None:
+                self.eval_losses.pop()
+            self.eval_losses.append(logs['eval_loss'])
+        else:
+            self.eval_losses.append(None)
+            if 'loss' in logs:
+                self.losses.append(logs['loss'])
+            self.learning_rates.append(self.trainer.optimizer.param_groups[0]['lr'])
+
+        color = 'tab:red'
+        self.ax1.set_xlabel('step')
+        self.ax1.set_xlim(0, self.trainer.state.max_steps)  # Set x-axis limits
+        self.ax1.set_ylabel('loss', color=color)
+        # Set y-axis limits to the maximum loss value, ignoring None values
+        self.ax1.set_ylim(0, max(filter(None, self.losses + self.eval_losses)) * 1.05)
+        self.ax1.plot(self.losses, color=color)
+        self.ax1.plot(self.eval_losses, color='tab:purple')
+        self.ax1.tick_params(axis='y', labelcolor=color)
+
+        color = 'tab:blue'
+        self.ax2.set_ylabel('learning rate', color=color)
+        self.ax2.set_ylim(0, self.trainer.optimizer.param_groups[0]['initial_lr'] * 1.05)
+        self.ax2.plot(self.learning_rates, color=color)
+        self.ax2.tick_params(axis='y', labelcolor=color)
+
+        self.fig.tight_layout()
+        plt.draw()
+        plt.pause(0.1)
+
+
+# Initialize Trainer with the custom callback
 trainer = Trainer(
     model=model,
     args=training_args,
@@ -170,13 +240,17 @@ trainer = Trainer(
     eval_dataset=tokenized_eval,
 )
 
+trainer.add_callback(PlotLossesCallback(trainer))
+
 # Count the number of parameters in the model and print it in billions (B) or millions (M), if applicable
 num_params = sum(p.numel() for p in model.parameters())
-print("Number of parameters: {num_params/1e9:.2f}B" if num_params >
+print(f"Number of parameters: {num_params/1e9:.2f}B" if num_params >
       1e9 else f"Number of parameters: {num_params/1e6:.2f}M")
 
 # Start training
+print("Starting training...")
 trainer.train()
 
 # Save the trained model
+print("Saving the trained model...")
 model.save_pretrained(output_dir)
