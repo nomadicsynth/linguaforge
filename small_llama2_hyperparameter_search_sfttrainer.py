@@ -1,9 +1,7 @@
 import numpy as np
 import optuna
 import pickle
-import time
 import torch
-# from CustomLlamaModel import CustomLlamaModel
 from datasets import load_dataset, DatasetDict
 from transformers import LlamaForCausalLM, LlamaConfig, AutoTokenizer, TrainingArguments
 from transformers import TrainerCallback
@@ -17,6 +15,7 @@ intermediate_size = 2048  # Size of the feed-forward network in the transformer 
 attention_heads = 32  # Number of attention heads
 context_length = 1024  # Maximum sequence length
 stride = 50  # Stride for splitting the input into multiple sequences
+tokenizer_name = "meta-llama/Llama-2-7b-chat-hf"  # Name of the tokenizer to use
 
 # Dataset settings
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
@@ -29,6 +28,7 @@ dataset_split = 0.9  # Percentage of examples to use for training
 seed = 42
 lr_scheduler_type = "linear"
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
+n_trials = 50  # Number of hyperparameter search trials
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -47,15 +47,16 @@ config_1B = LlamaConfig(
     max_position_embeddings=context_length,
     pad_token_id=2,
     torch_dtype="bfloat16",
-    # attn_implementation="flash_attention_2",
+    # attn_implementation="flash_attention_2",  # Disable torch_dtype="bfloat16" if using flash_attention_2
 )
 
 # Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")
+print(f"Loading the tokenizer from {tokenizer_name}...")
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 
 # Prepare dataset
-print("Loading the dataset...")
+print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
 
 # Select the first dataset_size examples from the training set
@@ -91,14 +92,13 @@ class Objective(TrainerCallback):
         num_train_epochs = trial.suggest_int("num_train_epochs", 1, 5)
         per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
         warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.5)
-        gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 8)
+        gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
 
         # Reset the best loss
         self.best_loss = np.inf
 
         # Define the model initialization function
         def model_init():
-            # return CustomLlamaModel(config_1B).to(device)
             return LlamaForCausalLM(config_1B).to(device)
 
         # TrainingArguments setup
@@ -115,7 +115,7 @@ class Objective(TrainerCallback):
             logging_strategy="epoch",
             report_to="none",  # Avoid clutter
             optim=optim,
-            save_strategy="no",
+            save_strategy="epoch",
             bf16=True,  # Enable mixed-precision training
             bf16_full_eval=True,  # Enable mixed-precision evaluation
             seed=seed,
@@ -147,7 +147,7 @@ class Objective(TrainerCallback):
 def run_optuna_study():
     study = optuna.create_study(direction="minimize")
     objective = Objective(dataset)
-    study.optimize(objective, n_trials=10)  # Adjust the number of trials as needed
+    study.optimize(objective, n_trials=n_trials, gc_after_trial=True)
 
     print("Study statistics: ")
     print("  Number of finished trials: ", len(study.trials))
@@ -159,7 +159,7 @@ def run_optuna_study():
     for key, value in trial.params.items():
         print(f"      {key}: {value}")
 
-    # Optionally, save the study
+    # Save the study
     with open(f"./results/optuna_study.pkl", "wb") as f:
         pickle.dump(study, f)
 
