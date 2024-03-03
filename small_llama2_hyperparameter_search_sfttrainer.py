@@ -55,35 +55,15 @@ print(f"Loading the tokenizer from {tokenizer_name}...")
 tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 
-# Prepare dataset
+# Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
-
-# Select the first dataset_size examples from the training set
-if dataset_size > 0:
-    print("Selecting the first", dataset_size, "examples from the dataset...")
-    dataset = dataset["train"].select(range(dataset_size))
-else:
-    dataset_size = len(dataset["train"])
-    print("Using the entire dataset of size", dataset_size)
-    dataset = dataset["train"]
-
-# Shuffling the dataset
-print("Shuffling the dataset...")
-dataset = dataset.shuffle(seed=seed)
-
-# Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
-print("Splitting the dataset into training and evaluation sets...")
-print("Training set size:", int(dataset_size * dataset_split))
-print("Evaluation set size:", dataset_size - int(dataset_size * dataset_split))
-dataset = dataset.train_test_split(test_size=1-dataset_split, seed=seed)
 
 
 # Objective function for Optuna
 class Objective(TrainerCallback):
     def __init__(self, dataset: Union[dict, DatasetDict]):
-        self.dataset_train = dataset["train"]
-        self.dataset_eval = dataset["test"]
+        self.dataset = dataset
         self.best_loss = np.inf
 
     def __call__(self, trial: optuna.Trial) -> float:
@@ -93,6 +73,7 @@ class Objective(TrainerCallback):
         per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
         warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.5)
         gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
+        dataset_size = trial.suggest_int("dataset_size", 1000, 3000)
 
         # Reset the best loss
         self.best_loss = np.inf
@@ -113,13 +94,16 @@ class Objective(TrainerCallback):
             evaluation_strategy="epoch",
             logging_dir=f"./logs/optuna_trial_{trial.number}",
             logging_strategy="epoch",
-            report_to="none",  # Avoid clutter
+            report_to="none",
             optim=optim,
-            save_strategy="epoch",
+            save_strategy="no",
             bf16=True,  # Enable mixed-precision training
             bf16_full_eval=True,  # Enable mixed-precision evaluation
             seed=seed,
         )
+
+        # Prepare the dataset
+        self.prepare_dataset(dataset_size, dataset_split)
 
         # Initialize the trainer
         trainer = SFTTrainer(
@@ -133,9 +117,43 @@ class Objective(TrainerCallback):
             callbacks=[self],
         )
 
+        # Print the model size
+        print("Model size:", sum(p.numel() for p in trainer.model.parameters() if p.requires_grad))
+
+        # Print the hyperparameters
+        print("Hyperparameters:")
+        print(f"  Dataset size: {dataset_size}")
+        print(f"  Learning rate: {learning_rate}")
+        print(f"  Number of training epochs: {num_train_epochs}")
+        print(f"  Batch size: {per_device_train_batch_size}")
+        print(f"  Warmup ratio: {warmup_ratio}")
+        print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
+        print(f"  Dataset size: {dataset_size}")
+
         # Train the model
         trainer.train()
         return self.best_loss
+
+    def prepare_dataset(self, dataset_size: int, dataset_split: float):
+        prepared_dataset = None
+        # Select the first dataset_size examples from the training set
+        if dataset_size > 0:
+            print("Selecting the first", dataset_size, "examples from the dataset...")
+            prepared_dataset = self.dataset["train"].select(range(dataset_size))
+        else:
+            dataset_size = len(self.dataset["train"])
+            print("Using the entire dataset of size", dataset_size)
+            prepared_dataset = self.dataset["train"]
+
+        # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
+        print("Splitting the dataset into training and evaluation sets...")
+        print("Training set size:", int(dataset_size * dataset_split))
+        print("Evaluation set size:", dataset_size - int(dataset_size * dataset_split))
+        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
+
+        # Set the training and evaluation datasets
+        self.dataset_train = prepared_dataset["train"]
+        self.dataset_eval = prepared_dataset["test"]
 
     def on_evaluate(self, args, state, control, **kwargs):
         eval_loss = kwargs["metrics"]["eval_loss"]
