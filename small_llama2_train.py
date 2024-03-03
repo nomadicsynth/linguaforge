@@ -1,11 +1,10 @@
 import json
-import matplotlib.pyplot as plt
 import os
 import time
 import torch
 from CustomLlamaModel import CustomLlamaModel
 from datasets import load_dataset, Dataset
-from transformers import LlamaConfig, AutoTokenizer, TrainingArguments, Trainer, TrainerCallback
+from transformers import LlamaConfig, AutoTokenizer, TrainingArguments, Trainer
 
 
 # Model settings
@@ -172,6 +171,7 @@ training_args = TrainingArguments(
     learning_rate=learning_rate,
     lr_scheduler_type=lr_scheduler_type,
     logging_dir=logging_dir,
+    report_to=["tensorboard"],
     logging_steps=logging_steps,
     evaluation_strategy=evaluation_strategy,
     eval_steps=eval_steps,
@@ -185,63 +185,12 @@ training_args = TrainingArguments(
     optim=optim,
 )
 
-
-# Custom callback to plot the loss during training
-class PlotLossesCallback(TrainerCallback):
-    def __init__(self, trainer: Trainer):
-        self.losses = []
-        self.eval_losses = []
-        self.learning_rates = []
-        self.trainer = trainer
-        self.fig, self.ax1 = plt.subplots()
-        self.ax2 = self.ax1.twinx()
-        plt.title('Training and Evaluation loss and learning rate')
-        # Set the plot size to 1280x480 pixels
-        self.fig.set_size_inches(12.8, 4.8)
-        plt.show(block=False)
-
-    def on_log(self, args, state, control, logs=None, **kwargs):
-        if 'eval_loss' in logs:
-            # Remove the last element from the list if it's None
-            if self.eval_losses and self.eval_losses[-1] is None:
-                self.eval_losses.pop()
-            self.eval_losses.append(logs['eval_loss'])
-        else:
-            self.eval_losses.append(None)
-            if 'loss' in logs:
-                self.losses.append(logs['loss'])
-            self.learning_rates.append(self.trainer.optimizer.param_groups[0]['lr'])
-
-        color = 'tab:red'
-        self.ax1.set_xlabel('step')
-        self.ax1.set_xlim(0, self.trainer.state.max_steps)  # Set x-axis limits
-        self.ax1.set_ylabel('loss', color=color)
-        # Set y-axis limits to the maximum loss value, ignoring None values
-        self.ax1.set_ylim(0, max(filter(None, self.losses + self.eval_losses)) * 1.05)
-        self.ax1.plot(self.losses, color=color)
-        self.ax1.plot(self.eval_losses, color='tab:purple')
-        self.ax1.tick_params(axis='y', labelcolor=color)
-
-        color = 'tab:blue'
-        self.ax2.set_ylabel('learning rate', color=color)
-        self.ax2.set_ylim(0, self.trainer.optimizer.param_groups[0]['initial_lr'] * 1.05)
-        self.ax2.plot(self.learning_rates, color=color)
-        self.ax2.tick_params(axis='y', labelcolor=color)
-
-        self.fig.tight_layout()
-        plt.draw()
-        plt.pause(0.1)
-
-
-# Initialize Trainer with the custom callback
 trainer = Trainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_train,
     eval_dataset=tokenized_eval,
 )
-
-trainer.add_callback(PlotLossesCallback(trainer))
 
 # Count the number of parameters in the model and print it in billions (B) or millions (M), if applicable
 num_params = sum(p.numel() for p in model.parameters())

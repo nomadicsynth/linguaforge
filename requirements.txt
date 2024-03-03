@@ -2,4 +2,5 @@ torch
 accelerate
 transformers
 datasets
-matplotlib
+tensorboard
+optuna
