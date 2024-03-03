@@ -20,31 +20,32 @@ stride = 50  # Stride for splitting the input into multiple sequences
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "D:/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 20000  # Number of examples to use from the dataset. 0 means all examples
+dataset_size = 100  # Number of examples to use from the dataset. 0 means all examples
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
 seed = 42
-epochs = 7  # Number of training epochs
+epochs = 5  # Number of training epochs
 batch_size = 3  # Number of sequences to process in parallel
-gradient_accumulation_steps = 10  # Number of update steps to accumulate before performing a backward pass
-logging_steps = 1  # Log training loss every X steps
+gradient_accumulation_steps = 4  # Number of update steps to accumulate before performing a backward pass
 # warmup_steps = 100 / gradient_accumulation_steps  # Number of warmup steps for the learning rate scheduler
-warmup_steps = 100  # Number of warmup steps for the learning rate scheduler
+warmup_steps = 10  # Number of warmup steps for the learning rate scheduler
 
 run = "2"
 output_dir = "./results/run-" + run
 logging_dir = output_dir + "/logs"
-final_dir = "./final"
+# final_dir = "./final"
 
-learning_rate = 5e-7
-lr_scheduler_type = "cosine"
+learning_rate = 5e-5
+lr_scheduler_type = "linear"
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 
-evaluation_strategy = "epoch"
-eval_steps = 0.25
-save_strategy = "epoch"
-save_steps = 0.25
+logging_steps = 10  # Log training loss every X steps
+
+evaluation_strategy = "steps"
+eval_steps = 1 / (epochs * 4)  # Evaluate every 25% of an epoch
+save_strategy = "steps"
+save_steps = eval_steps
 
 load_best_model_at_end = True
 metric_for_best_model = "loss"
