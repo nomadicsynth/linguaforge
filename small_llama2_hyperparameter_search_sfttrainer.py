@@ -30,9 +30,6 @@ seed = 42
 lr_scheduler_type = "linear"
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 
-logging_strategy = "epoch"
-evaluation_strategy = "epoch"
-
 # Set seed for reproducibility
 set_seed(seed)
 
@@ -113,7 +110,7 @@ class Objective(TrainerCallback):
             gradient_accumulation_steps=gradient_accumulation_steps,
             warmup_ratio=warmup_ratio,
             learning_rate=learning_rate,
-            evaluation_strategy=evaluation_strategy,
+            evaluation_strategy="epoch",
             logging_dir=f"./logs/optuna_trial_{trial.number}",
             logging_strategy="epoch",
             report_to="none",  # Avoid clutter
