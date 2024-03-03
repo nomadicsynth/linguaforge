@@ -1,13 +1,13 @@
-import json
-import os
+import numpy as np
+import optuna
 import pickle
 import time
 import torch
-import numpy as np
-import optuna
 from CustomLlamaModel import CustomLlamaModel
 from datasets import load_dataset, Dataset
-from transformers import LlamaConfig, AutoTokenizer, TrainingArguments, Trainer, TrainerCallback
+from transformers import LlamaConfig, AutoTokenizer, TrainingArguments
+from transformers import Trainer, TrainerCallback
+from transformers import set_seed
 
 # Model settings
 hidden_layers = 12  # Number of transformer layers
@@ -77,12 +77,10 @@ training_config = {
     "start_time": time.strftime("%Y-%m-%d %H:%M:%S"),
 }
 
-# Create the output directory if it doesn't exist
-if not os.path.exists(output_dir):
-    os.makedirs(output_dir)
-
-with open(output_dir + "/training_config.json", "w") as f:
-    json.dump(training_config, f, indent=4)
+# Set seed for reproducibility
+torch.manual_seed(seed)
+np.random.seed(seed)
+set_seed(seed)
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -97,14 +95,9 @@ config_1B = LlamaConfig(
     num_attention_heads=attention_heads,
     max_position_embeddings=context_length,
     pad_token_id=2,
-    torch_dtype="bfloat16"
+    torch_dtype="bfloat16",
+    attn_implementation="flash_attention_2",
 )
-
-# Initialize the model with bfloat16 precision
-model = CustomLlamaModel(config_1B)
-# model = model.half()  # Convert model parameters to bfloat16
-model = model.to(device)  # Move model to GPU
-model = model.train()  # Set model to training mode
 
 # Load tokenizer
 tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-2-7b-chat-hf")

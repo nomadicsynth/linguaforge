@@ -4,3 +4,7 @@ transformers
 datasets
 tensorboard
 optuna
+packaging
+ninja
+wheel
+# flash-attn
