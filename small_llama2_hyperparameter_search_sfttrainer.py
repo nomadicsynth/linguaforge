@@ -22,6 +22,7 @@ dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "D:/ai-stuff/datasets/wikipedia"  # Path to the dataset
 dataset_size = 1000  # Number of examples to use from the dataset. 0 means all examples
+dataset_size_range = [5000, 10000]  # Range of dataset sizes to use for hyperparameter search
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
@@ -73,7 +74,7 @@ class Objective(TrainerCallback):
         per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
         warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
         gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
-        dataset_size = trial.suggest_int("dataset_size", 5000, 10000)
+        dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
 
         # Reset the best loss
         self.best_loss = np.inf
