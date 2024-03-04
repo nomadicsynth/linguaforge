@@ -21,7 +21,6 @@ tokenizer_name = "meta-llama/Llama-2-7b-chat-hf"  # Name of the tokenizer to use
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "D:/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 1000  # Number of examples to use from the dataset. 0 means all examples
 dataset_size_range = [5000, 10000]  # Range of dataset sizes to use for hyperparameter search
 dataset_split = 0.9  # Percentage of examples to use for training
 
