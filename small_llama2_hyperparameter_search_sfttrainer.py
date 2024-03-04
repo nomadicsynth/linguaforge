@@ -28,7 +28,7 @@ dataset_split = 0.9  # Percentage of examples to use for training
 seed = 42
 lr_scheduler_type = "linear"
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
-n_trials = 50  # Number of hyperparameter search trials
+n_trials = 20  # Number of hyperparameter search trials
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -70,7 +70,8 @@ class Objective(TrainerCallback):
         # Hyperparameter search space
         learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-4)
         num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
-        per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
+        # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
+        per_device_train_batch_size = 3
         warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
         gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
         dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
@@ -112,6 +113,7 @@ class Objective(TrainerCallback):
             train_dataset=self.dataset_train,
             eval_dataset=self.dataset_eval,
             dataset_text_field="text",
+            packing=True,
             max_seq_length=context_length,
             tokenizer=tokenizer,
             callbacks=[self],
