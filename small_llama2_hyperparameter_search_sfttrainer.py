@@ -68,12 +68,12 @@ class Objective(TrainerCallback):
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Hyperparameter search space
-        learning_rate = trial.suggest_float("learning_rate", 1e-6, 1e-4)
-        num_train_epochs = trial.suggest_int("num_train_epochs", 1, 5)
+        learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-4)
+        num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
         per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
-        warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.5)
+        warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
         gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
-        dataset_size = trial.suggest_int("dataset_size", 1000, 3000)
+        dataset_size = trial.suggest_int("dataset_size", 5000, 10000)
 
         # Reset the best loss
         self.best_loss = np.inf
