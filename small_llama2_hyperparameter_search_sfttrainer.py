@@ -1,10 +1,18 @@
+import json
+import os
 import numpy as np
 import optuna
 import pickle
 import torch
 from datasets import load_dataset, DatasetDict
-from transformers import LlamaForCausalLM, LlamaConfig, AutoTokenizer, TrainingArguments
-from transformers import TrainerCallback
+from transformers import (
+    LlamaForCausalLM,
+    LlamaConfig,
+    AutoTokenizer,
+    TrainingArguments,
+    TrainerCallback
+)
+from transformers.integrations import PyTorchLightningPruningCallback
 from trl import set_seed, SFTTrainer
 from typing import Union
 
@@ -21,7 +29,7 @@ tokenizer_name = "meta-llama/Llama-2-7b-chat-hf"  # Name of the tokenizer to use
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "D:/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size_range = [1000, 3000]  # Range of dataset sizes to use for hyperparameter search
+dataset_size_range = [100, 1000]  # Range of dataset sizes to use for hyperparameter search
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
@@ -64,7 +72,6 @@ dataset = load_dataset(dataset_path, dataset_config)
 class Objective(TrainerCallback):
     def __init__(self, dataset: Union[dict, DatasetDict]):
         self.dataset = dataset
-        self.best_loss = np.inf
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Hyperparameter search space
@@ -74,15 +81,16 @@ class Objective(TrainerCallback):
         per_device_train_batch_size = 3
         warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
         gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
-        dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
-        # dataset_size = 1000
-
-        # Reset the best loss
-        self.best_loss = np.inf
+        # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
+        dataset_size = 500
 
         # Define the model initialization function
         def model_init():
             return LlamaForCausalLM(config_1B).to(device)
+
+        results_dir = f"./results/optuna_trial_{trial.number}"
+        if not os.path.exists(results_dir):
+            os.makedirs(results_dir)
 
         # TrainingArguments setup
         training_args = TrainingArguments(
@@ -91,11 +99,14 @@ class Objective(TrainerCallback):
             per_device_train_batch_size=per_device_train_batch_size,
             per_device_eval_batch_size=per_device_train_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
+            max_grad_norm=15.0,
             warmup_ratio=warmup_ratio,
             learning_rate=learning_rate,
-            evaluation_strategy="epoch",
+            evaluation_strategy="steps",
+            eval_steps=0.5 / num_train_epochs,
             logging_dir=f"./logs/optuna_trial_{trial.number}",
-            logging_strategy="epoch",
+            logging_strategy="steps",
+            logging_steps=0.25 / num_train_epochs,
             report_to="none",
             optim=optim,
             save_strategy="no",
@@ -117,25 +128,46 @@ class Objective(TrainerCallback):
             packing=True,
             max_seq_length=context_length,
             tokenizer=tokenizer,
-            callbacks=[self],
+            callbacks=[self, PyTorchLightningPruningCallback(trial, monitor="eval_loss")],
         )
 
-        # Print the model size
-        print("Model size:", sum(p.numel() for p in trainer.model.parameters() if p.requires_grad))
+        # Print the model size with suffix 'G' or 'M'
+        model_size = sum(p.numel() for p in trainer.model.parameters())
+        model_size = model_size / 1e9 if model_size > 1e9 else model_size / 1e6
+        model_size_suffix = "G" if model_size > 1e3 else "M"
+
+        dataset_train_size = len(self.dataset_train)
+        dataset_eval_size = len(self.dataset_eval)
 
         # Print the hyperparameters
         print("Hyperparameters:")
-        print(f"  Dataset size: {dataset_size}")
+        print(f"  Model size: {model_size:.2f}{model_size_suffix} parameters")
         print(f"  Learning rate: {learning_rate}")
-        print(f"  Number of training epochs: {num_train_epochs}")
-        print(f"  Batch size: {per_device_train_batch_size}")
+        print(f"  Epochs: {num_train_epochs}")
         print(f"  Warmup ratio: {warmup_ratio}")
         print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
-        print(f"  Dataset size: {dataset_size}")
+
+        # Save all the details to a JSON file in the results directory
+        with open(f"{results_dir}/details.json", "w") as f:
+            json.dump(
+                {
+                    "model_size": f"{model_size:.2f}{model_size_suffix}",
+                    "learning_rate": learning_rate,
+                    "per_device_train_batch_size": per_device_train_batch_size,
+                    "epochs": num_train_epochs,
+                    "warmup_ratio": warmup_ratio,
+                    "gradient_accumulation_steps": gradient_accumulation_steps,
+                    "dataset_train_size": dataset_train_size,
+                    "dataset_eval_size": dataset_eval_size,
+                },
+                f,
+            )
 
         # Train the model
         trainer.train()
-        return self.best_loss
+
+        # Return the best loss
+        return trainer.state.best_metric
 
     def prepare_dataset(self, dataset_size: int, dataset_split: float):
         prepared_dataset = None
@@ -150,8 +182,8 @@ class Objective(TrainerCallback):
 
         # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
         print("Splitting the dataset into training and evaluation sets...")
-        print("Training set size:", int(dataset_size * dataset_split))
-        print("Evaluation set size:", dataset_size - int(dataset_size * dataset_split))
+        print("Training set size:", round(dataset_size * dataset_split))
+        print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
         prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
 
         # Set the training and evaluation datasets
@@ -166,7 +198,24 @@ class Objective(TrainerCallback):
 
 # Optuna study
 def run_optuna_study():
-    study = optuna.create_study(direction="minimize")
+    study_name = "llama2-small_hyperparameter_search"
+    storage_name = "sqlite:///./results/optuna_study.db"
+
+    # Use TPE sampler
+    sampler = optuna.samplers.TPESampler()
+
+    # Use Hyperband pruner
+    pruner = optuna.pruners.HyperbandPruner()
+
+    study = optuna.create_study(
+        direction="minimize",
+        study_name=study_name,
+        storage=storage_name,
+        load_if_exists=True,
+        sampler=sampler,
+        pruner=pruner
+
+    )
     objective = Objective(dataset)
     study.optimize(objective, n_trials=n_trials, gc_after_trial=True)
 
