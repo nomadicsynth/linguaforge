@@ -1,10 +1,9 @@
+from datasets import load_dataset, DatasetDict
 import json
 import os
-import numpy as np
 import optuna
 import pickle
 import torch
-from datasets import load_dataset, DatasetDict
 from transformers import (
     LlamaForCausalLM,
     LlamaConfig,
@@ -12,7 +11,6 @@ from transformers import (
     TrainingArguments,
     TrainerCallback
 )
-from optuna.integration import PyTorchLightningPruningCallback
 from trl import set_seed, SFTTrainer
 from typing import Union
 
@@ -68,6 +66,25 @@ print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
 
 
+# Custom callback for Optuna pruning
+class OptunaPruningCallback(TrainerCallback):
+    def __init__(self, trial: optuna.Trial, monitor: str):
+        self.trial = trial
+        self.monitor = monitor
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        # Retrieve the metric to monitor
+        metric_value = metrics.get(self.monitor)
+        if metric_value is None:
+            raise ValueError(f"The monitored metric '{self.monitor}' was not found.")
+
+        # Report the current metric value to Optuna and check for pruning
+        self.trial.report(metric_value, step=state.epoch)
+        if self.trial.should_prune():
+            message = f"Trial was pruned at epoch {state.epoch}."
+            raise optuna.exceptions.TrialPruned(message)
+
+
 # Objective function for Optuna
 class Objective(TrainerCallback):
     def __init__(self, dataset: Union[dict, DatasetDict]):
@@ -76,7 +93,8 @@ class Objective(TrainerCallback):
     def __call__(self, trial: optuna.Trial) -> float:
         # Hyperparameter search space
         learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-4)
-        num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
+        # num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
+        num_train_epochs = 7
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
         per_device_train_batch_size = 3
         warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
@@ -128,7 +146,7 @@ class Objective(TrainerCallback):
             packing=True,
             max_seq_length=context_length,
             tokenizer=tokenizer,
-            callbacks=[self, PyTorchLightningPruningCallback(trial, monitor="eval_loss")],
+            callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
         )
 
         # Print the model size with suffix 'G' or 'M'
