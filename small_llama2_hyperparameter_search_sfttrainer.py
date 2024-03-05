@@ -12,7 +12,7 @@ from transformers import (
     TrainingArguments,
     TrainerCallback
 )
-from transformers.integrations import PyTorchLightningPruningCallback
+from optuna.integration import PyTorchLightningPruningCallback
 from trl import set_seed, SFTTrainer
 from typing import Union
 
