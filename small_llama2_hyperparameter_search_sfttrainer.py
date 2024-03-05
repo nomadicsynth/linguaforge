@@ -1,5 +1,6 @@
 from datasets import load_dataset, DatasetDict
 import json
+import numpy as np
 import os
 import optuna
 import pickle
@@ -89,18 +90,22 @@ class OptunaPruningCallback(TrainerCallback):
 class Objective(TrainerCallback):
     def __init__(self, dataset: Union[dict, DatasetDict]):
         self.dataset = dataset
+        self.best_loss = np.inf
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Hyperparameter search space
         learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-4)
         # num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
-        num_train_epochs = 7
+        num_train_epochs = 5
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
         per_device_train_batch_size = 3
         warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
         gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
         dataset_size = 500
+
+        # Reset the best loss
+        self.best_loss = np.inf
 
         # Define the model initialization function
         def model_init():
@@ -124,7 +129,7 @@ class Objective(TrainerCallback):
             eval_steps=0.5 / num_train_epochs,
             logging_dir=f"./logs/optuna_trial_{trial.number}",
             logging_strategy="steps",
-            logging_steps=0.25 / num_train_epochs,
+            logging_steps=0.5 / num_train_epochs,
             report_to="none",
             optim=optim,
             save_strategy="no",
@@ -185,7 +190,7 @@ class Objective(TrainerCallback):
         trainer.train()
 
         # Return the best loss
-        return trainer.state.best_metric
+        return self.best_loss
 
     def prepare_dataset(self, dataset_size: int, dataset_split: float):
         prepared_dataset = None
@@ -216,14 +221,19 @@ class Objective(TrainerCallback):
 
 # Optuna study
 def run_optuna_study():
+    results_dir = "./results"
     study_name = "llama2-small_hyperparameter_search"
-    storage_name = "sqlite:///./results/optuna_study.db"
+    study_dir = f"{results_dir}/{study_name}"
+    storage_name = f"sqlite:///{study_dir}/optuna.db"
+
+    if not os.path.exists(study_dir):
+        os.makedirs(study_dir)
 
     # Use TPE sampler
-    sampler = optuna.samplers.TPESampler()
+    sampler = optuna.samplers.TPESampler(seed=seed)
 
     # Use Hyperband pruner
-    pruner = optuna.pruners.HyperbandPruner()
+    pruner = optuna.pruners.MedianPruner()
 
     study = optuna.create_study(
         direction="minimize",
