@@ -1,5 +1,6 @@
 from datasets import load_dataset, DatasetDict
 import json
+import math
 import numpy as np
 import os
 import optuna
@@ -8,6 +9,7 @@ import torch
 from transformers import (
     LlamaForCausalLM,
     LlamaConfig,
+    LlamaTokenizerFast,
     AutoTokenizer,
     TrainingArguments,
     TrainerCallback
@@ -15,27 +17,30 @@ from transformers import (
 from trl import set_seed, SFTTrainer
 from typing import Union
 
+hf_token = "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"
+
 # Model settings
-hidden_layers = 25  # Number of transformer layers
+hidden_layers = 14  # Number of transformer layers
 hidden_size = 1024  # Size of the hidden states in the transformer layers
-intermediate_size = 2048  # Size of the feed-forward network in the transformer layers
+intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
-context_length = 1024  # Maximum sequence length
-stride = 50  # Stride for splitting the input into multiple sequences
-tokenizer_name = "meta-llama/Llama-2-7b-chat-hf"  # Name of the tokenizer to use
+context_length = 2048  # Maximum sequence length
+tokenizer_name = "meta-llama/Llama-2-7b-hf"  # Name of the tokenizer to use
 
 # Dataset settings
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
-dataset_path = "D:/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size_range = [100, 1000]  # Range of dataset sizes to use for hyperparameter search
+dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
+dataset_size_range = [500, 500]  # Range of dataset sizes to use for hyperparameter search
 dataset_split = 0.9  # Percentage of examples to use for training
+stride = 50  # Stride for splitting the input into multiple sequences
 
 # Training settings
 seed = 42
-lr_scheduler_type = "linear"
+lr_range = [5e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
+lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
-n_trials = 20  # Number of hyperparameter search trials
+n_trials = 3  # Number of hyperparameter search trials
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -45,22 +50,24 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Configuration for a hypothetical <1B parameter model
-config_1B = LlamaConfig(
-    vocab_size=32000,
-    hidden_size=hidden_size,
-    intermediate_size=intermediate_size,
-    num_hidden_layers=hidden_layers,
-    num_attention_heads=attention_heads,
-    max_position_embeddings=context_length,
-    pad_token_id=2,
-    torch_dtype="bfloat16",
-    # attn_implementation="flash_attention_2",  # Disable torch_dtype="bfloat16" if using flash_attention_2
-)
+config_1B = LlamaConfig().from_pretrained(tokenizer_name, token=hf_token)
+config_1B.hidden_size = hidden_size
+config_1B.intermediate_size = intermediate_size
+config_1B.num_hidden_layers = hidden_layers
+config_1B.num_attention_heads = attention_heads
+config_1B.max_position_embeddings = context_length
+config_1B.pad_token_id = config_1B.eos_token_id
+config_1B.torch_dtype = "bfloat16"
+config_1B.attn_implementation = "flash_attention_2"
 
 # Load tokenizer
 print(f"Loading the tokenizer from {tokenizer_name}...")
-tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, token=hf_token)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
+
+# Set stride for splitting the input into multiple sequences
+tokenizer.model_max_length = context_length
+tokenizer.stride = stride
 
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
@@ -81,7 +88,7 @@ class OptunaPruningCallback(TrainerCallback):
 
         # Report the current metric value to Optuna and check for pruning
         self.trial.report(metric_value, step=state.epoch)
-        if self.trial.should_prune():
+        if self.trial.should_prune() or math.isnan(metric_value) or math.isinf(metric_value):
             message = f"Trial was pruned at epoch {state.epoch}."
             raise optuna.exceptions.TrialPruned(message)
 
@@ -94,15 +101,19 @@ class Objective(TrainerCallback):
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Hyperparameter search space
-        learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-4)
+        learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+        # learning_rate = 9.8e-5
+        lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
         # num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
         num_train_epochs = 5
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
-        per_device_train_batch_size = 3
-        warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
-        gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 32)
+        per_device_train_batch_size = 2
+        # warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
+        warmup_ratio = 0.15
+        # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 4)
+        gradient_accumulation_steps = 1
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
-        dataset_size = 500
+        dataset_size = 5000
 
         # Reset the best loss
         self.best_loss = np.inf
@@ -122,13 +133,14 @@ class Objective(TrainerCallback):
             per_device_train_batch_size=per_device_train_batch_size,
             per_device_eval_batch_size=per_device_train_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            max_grad_norm=15.0,
+            max_grad_norm=1.0,
             warmup_ratio=warmup_ratio,
             learning_rate=learning_rate,
-            evaluation_strategy="steps",
+            lr_scheduler_type=lr_scheduler_type,
+            evaluation_strategy="epoch",
             eval_steps=0.5 / num_train_epochs,
             logging_dir=f"./logs/optuna_trial_{trial.number}",
-            logging_strategy="steps",
+            logging_strategy="no",
             logging_steps=0.5 / num_train_epochs,
             report_to="none",
             optim=optim,
@@ -232,7 +244,7 @@ def run_optuna_study():
     # Use TPE sampler
     sampler = optuna.samplers.TPESampler(seed=seed)
 
-    # Use Hyperband pruner
+    # Use Median pruner
     pruner = optuna.pruners.MedianPruner()
 
     study = optuna.create_study(
