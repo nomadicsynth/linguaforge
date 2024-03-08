@@ -1,23 +1,18 @@
 from datasets import load_dataset, DatasetDict
 import json
-import math
 import numpy as np
 import os
-import optuna
-import pickle
 import torch
 from transformers import (
     LlamaForCausalLM,
     LlamaConfig,
     LlamaTokenizerFast,
     TrainingArguments,
-    TrainerCallback
 )
 from trl import set_seed, SFTTrainer
 from typing import Union
 
 hf_token = "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"
-
 
 # Model settings
 hidden_layers = 14  # Number of transformer layers
@@ -119,8 +114,8 @@ def run_training(
         evaluation_strategy="epoch",
         eval_steps=0.5 / num_train_epochs,
         logging_dir=f"{results_dir}/logs/",
-        logging_strategy="no",
-        logging_steps=0.5 / num_train_epochs,
+        logging_strategy="steps",
+        logging_steps=100,
         report_to="tensorboard",
         optim=optim,
         save_strategy="epoch",
