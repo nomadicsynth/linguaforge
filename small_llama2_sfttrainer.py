@@ -184,8 +184,8 @@ def run_training(
     print(f"  Optimizer: {optim}")
     print()
 
-    # Save the hyperparameters to a JSON file in the results directory
-    with open(f"{results_dir}/hyperparameters.json", "w") as f:
+    # Save all the details to a JSON file in the results directory
+    with open(f"{results_dir}/details.json", "w") as f:
         json.dump(
             {
                 "dataset": f"{dataset_name} ({dataset_config})",
@@ -200,22 +200,6 @@ def run_training(
                 "dataset_eval_size": dataset_eval_size,
                 "results_dir": results_dir,
                 "optim": optim,
-            },
-            f,
-        )
-
-    # Save all the details to a JSON file in the results directory
-    with open(f"{results_dir}/details.json", "w") as f:
-        json.dump(
-            {
-                "model_size": f"{model_size:.2f}{model_size_suffix}",
-                "learning_rate": learning_rate,
-                "per_device_train_batch_size": per_device_train_batch_size,
-                "epochs": num_train_epochs,
-                "warmup_ratio": warmup_ratio,
-                "gradient_accumulation_steps": gradient_accumulation_steps,
-                "dataset_train_size": dataset_train_size,
-                "dataset_eval_size": dataset_eval_size,
             },
             f,
         )
@@ -247,5 +231,16 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
 
 # Start the training
 if __name__ == "__main__":
-    run_training(dataset, learning_rate, lr_scheduler_type, num_train_epochs, per_device_train_batch_size,
-                 warmup_ratio, gradient_accumulation_steps, dataset_size, dataset_path, dataset_split, optim)
+    run_training(
+        dataset,
+        config_1B,
+        learning_rate,
+        lr_scheduler_type,
+        num_train_epochs,
+        per_device_train_batch_size,
+        warmup_ratio,
+        gradient_accumulation_steps,
+        dataset_size,
+        dataset_path,
+        dataset_split, optim
+    )
