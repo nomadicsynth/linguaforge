@@ -39,6 +39,7 @@ per_device_train_batch_size = 2
 warmup_ratio = 0.15
 gradient_accumulation_steps = 1
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
+results_dir = "./results"  # Directory to save the results
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -57,7 +58,6 @@ config_1B.max_position_embeddings = context_length
 config_1B.pad_token_id = config_1B.eos_token_id
 config_1B.torch_dtype = "bfloat16"
 config_1B.attn_implementation = "flash_attention_2"
-config_1B.device = device
 
 # Load tokenizer
 print(f"Loading the tokenizer from {tokenizer_name}...")
@@ -76,9 +76,10 @@ dataset = load_dataset(dataset_path, dataset_config)
 # Define the model initialization function
 def model_init(model_config: LlamaConfig) -> LlamaForCausalLM:
     print("Initializing the model with the following configuration:")
-    print(model_config)
+    for key, value in model_config.__dict__.items():
+        print(f"  {key}: {value}")
 
-    model = LlamaForCausalLM(model_config).to(model_config.device)
+    model = LlamaForCausalLM(model_config).to(device)
     return model
 
 
@@ -140,7 +141,6 @@ def run_training(
         packing=True,
         max_seq_length=model_config.max_position_embeddings,
         tokenizer=tokenizer,
-        device=device,
     )
 
     # Print the model size with suffix 'G' or 'M'
@@ -236,6 +236,7 @@ if __name__ == "__main__":
         warmup_ratio,
         gradient_accumulation_steps,
         dataset_size,
-        dataset_path,
-        dataset_split, optim
+        results_dir,
+        dataset_split,
+        optim,
     )
