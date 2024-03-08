@@ -26,26 +26,30 @@ tokenizer_name = "meta-llama/Llama-2-7b-hf"  # Name of the tokenizer to use
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 5000
+dataset_size = 10000
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences
 
 # Training settings
 seed = 42
-learning_rate = 9.8e-5
-lr_scheduler_type = "linear"
+learning_rate = 1e-4
+lr_scheduler_type = "cosine_with_restarts"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 5
 per_device_train_batch_size = 2
 warmup_ratio = 0.15
 gradient_accumulation_steps = 1
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
-results_dir = "./results"  # Directory to save the results
+results_dir = "./results/run-2"  # Directory to save the results
 
 # Set seed for reproducibility
 set_seed(seed)
 
 # Set device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    raise RuntimeError("No CUDA device found. Please use a CUDA-enabled device for training.")
+
 print(f"Using device: {device}")
 
 # Configuration for a hypothetical <1B parameter model
