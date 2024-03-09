@@ -18,6 +18,7 @@ hidden_layers = 18  # Number of transformer layers
 hidden_size = 1024  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
+attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
 template_model_name = "mistralai/Mistral-7B-v0.1"  # Name of the model to use as a template
 
@@ -25,7 +26,7 @@ template_model_name = "mistralai/Mistral-7B-v0.1"  # Name of the model to use as
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 1000  # Number of examples to use from the dataset
+dataset_size = 10000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences
 
@@ -36,9 +37,10 @@ lr_scheduler_type = "cosine_with_restarts"  # Use a cosine annealing learning ra
 num_train_epochs = 5
 per_device_train_batch_size = 2
 warmup_ratio = 0.15
+weight_decay = 0.01  # Weight decay for the AdamW optimizer
 gradient_accumulation_steps = 1
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
-results_dir = "./results/run-2"  # Directory to save the results
+results_dir = "./results/run-3"  # Directory to save the results
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -100,7 +102,10 @@ def run_training(
         dataset_size: int = 5000,
         results_dir: str = "./results",
         dataset_split: float = 0.9,
-        optim: str = "adamw_torch"
+        optim: str = "adamw_torch",
+        weight_decay: float = 0.0,
+        dropout: float = 0.0,
+        seed: int = 42,
 ):
 
     if not os.path.exists(results_dir):
@@ -115,6 +120,7 @@ def run_training(
         gradient_accumulation_steps=gradient_accumulation_steps,
         max_grad_norm=1.0,
         warmup_ratio=warmup_ratio,
+        weight_decay=weight_decay,
         learning_rate=learning_rate,
         lr_scheduler_type=lr_scheduler_type,
         evaluation_strategy="epoch",
@@ -132,6 +138,9 @@ def run_training(
 
     # Prepare the dataset
     dataset_train, dataset_eval = prepare_dataset(dataset, dataset_size, dataset_split, seed)
+
+    # Set the dropout rate
+    model_config.attention_dropout = dropout
 
     # Initialize the model
     model = model_init(model_config)
@@ -232,16 +241,19 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
 # Start the training
 if __name__ == "__main__":
     run_training(
-        dataset,
-        config_1B,
-        learning_rate,
-        lr_scheduler_type,
-        num_train_epochs,
-        per_device_train_batch_size,
-        warmup_ratio,
-        gradient_accumulation_steps,
-        dataset_size,
-        results_dir,
-        dataset_split,
-        optim,
+        dataset=dataset,
+        model_config=config_1B,
+        learning_rate=learning_rate,
+        lr_scheduler_type=lr_scheduler_type,
+        num_train_epochs=num_train_epochs,
+        per_device_train_batch_size=per_device_train_batch_size,
+        warmup_ratio=warmup_ratio,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        dataset_size=dataset_size,
+        results_dir=results_dir,
+        dataset_split=dataset_split,
+        optim=optim,
+        weight_decay=weight_decay,
+        dropout=attn_dropout,
+        seed=seed,
     )
