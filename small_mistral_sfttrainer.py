@@ -1,6 +1,5 @@
 from datasets import load_dataset, DatasetDict
 import json
-import numpy as np
 import os
 import torch
 from transformers import (
@@ -14,8 +13,8 @@ from trl import set_seed, SFTTrainer
 hf_token = "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"
 
 # Model settings
-hidden_layers = 18  # Number of transformer layers
-hidden_size = 1024  # Size of the hidden states in the transformer layers
+hidden_layers = 12  # Number of transformer layers
+hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
@@ -26,19 +25,19 @@ template_model_name = "mistralai/Mistral-7B-v0.1"  # Name of the model to use as
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 10000  # Number of examples to use from the dataset
+dataset_size = 5000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences
 
 # Training settings
 seed = 42
-learning_rate = 1e-4
+learning_rate = 9.8e-5  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "cosine_with_restarts"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 5
-per_device_train_batch_size = 2
+per_device_train_batch_size = 1
 warmup_ratio = 0.15
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
-gradient_accumulation_steps = 1
+gradient_accumulation_steps = 1  # Number of gradient accumulation steps
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 results_dir = "./results/run-3"  # Directory to save the results
 
