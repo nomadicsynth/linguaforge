@@ -20,16 +20,18 @@ from trl import set_seed, SFTTrainer
 from typing import Union
 from transformers import PreTrainedModel
 
-hf_token = "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"
+hf_token = "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"  # I'm a bad person for hardcoding this
 
-# Model settings
+# Use Mistral-7B-v0.1 as a template for the model settings
+template_model_name = "mistralai/Mistral-7B-v0.1"
+
+# Model settings - Model size: 823.18M parameters
 hidden_layers = 11  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 8192  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
-template_model_name = "mistralai/Mistral-7B-v0.1"  # Name of the tokenizer to use
 
 # Dataset settings
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
@@ -287,25 +289,26 @@ class Objective(TrainerCallback):
         return self.model
 
     def prepare_dataset(self, dataset_size: int, dataset_split: float):
-        prepared_dataset = None
-        # Select the first dataset_size examples from the training set
-        if dataset_size > 0:
-            print("Selecting the first", dataset_size, "examples from the dataset...")
-            prepared_dataset = self.dataset["train"].select(range(dataset_size))
-        else:
-            dataset_size = len(self.dataset["train"])
-            print("Using the entire dataset of size", dataset_size)
-            prepared_dataset = self.dataset["train"]
+        if self.dataset_train is None or self.dataset_eval is None:
+            prepared_dataset = None
+            # Select the first dataset_size examples from the training set
+            if dataset_size > 0:
+                print("Selecting the first", dataset_size, "examples from the dataset...")
+                prepared_dataset = self.dataset["train"].select(range(dataset_size))
+            else:
+                dataset_size = len(self.dataset["train"])
+                print("Using the entire dataset of size", dataset_size)
+                prepared_dataset = self.dataset["train"]
 
-        # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
-        print("Splitting the dataset into training and evaluation sets...")
-        print("Training set size:", round(dataset_size * dataset_split))
-        print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
+            # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
+            print("Splitting the dataset into training and evaluation sets...")
+            print("Training set size:", round(dataset_size * dataset_split))
+            print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
+            prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
 
-        # Set the training and evaluation datasets
-        self.dataset_train = prepared_dataset["train"]
-        self.dataset_eval = prepared_dataset["test"]
+            # Set the training and evaluation datasets
+            self.dataset_train = prepared_dataset["train"]
+            self.dataset_eval = prepared_dataset["test"]
 
     def on_evaluate(self, args, state, control, **kwargs):
         eval_loss = kwargs["metrics"]["eval_loss"]
