@@ -47,9 +47,6 @@ set_seed(seed)
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# If there are multiple GPUs, use the second one
-if torch.cuda.device_count() > 1:
-    device = torch.device("cuda:1")
 print(f"Using device: {device}")
 
 # Configuration for a hypothetical <1B parameter model
