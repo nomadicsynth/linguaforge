@@ -13,7 +13,7 @@ from trl import set_seed, SFTTrainer
 hf_token = "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"
 
 # Model settings
-hidden_layers = 12  # Number of transformer layers
+hidden_layers = 10  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
@@ -36,7 +36,7 @@ num_train_epochs = 5
 per_device_train_batch_size = 1
 warmup_ratio = 0.15
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
-gradient_accumulation_steps = 2  # Number of gradient accumulation steps
+gradient_accumulation_steps = 1  # Number of gradient accumulation steps
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 results_dir = "./results/run-3"  # Directory to save the results
 
@@ -71,7 +71,7 @@ tokenizer.padding_side = 'right'
 
 # Set stride for splitting the input into multiple sequences
 tokenizer.model_max_length = context_length
-tokenizer.stride = stride  # Probably doesn't work. Investigate later.
+# tokenizer.stride = stride  # Probably doesn't work. Investigate later.
 
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
