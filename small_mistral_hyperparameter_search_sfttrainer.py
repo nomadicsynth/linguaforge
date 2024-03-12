@@ -1,11 +1,13 @@
 from datasets import load_dataset, DatasetDict
+import bitsandbytes as bnb
 import json
 import math
 import numpy as np
-import os
 import optuna
+import os
 import pickle
 import torch
+from torch import nn
 from transformers import (
     MistralForCausalLM,
     MistralConfig,
@@ -13,19 +15,20 @@ from transformers import (
     TrainingArguments,
     TrainerCallback
 )
+from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
 from typing import Union
+from transformers import PreTrainedModel
 
 hf_token = "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"
 
 # Model settings
-hidden_layers = 12  # Number of transformer layers
+hidden_layers = 11  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
-intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
+intermediate_size = 8192  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
-gradient_checkpointing = False  # Use gradient checkpointing to reduce memory usage
 template_model_name = "mistralai/Mistral-7B-v0.1"  # Name of the tokenizer to use
 
 # Dataset settings
@@ -40,6 +43,10 @@ stride = 50  # Stride for splitting the input into multiple sequences
 seed = 42
 lr_range = [1e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
+num_train_epochs = 1  # Number of training epochs
+max_grad_norm = 1.0  # Maximum gradient norm
+gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
+gradient_checkpointing = False  # Causes a segfault when enabled
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 n_trials = 4  # Number of hyperparameter search trials
 
@@ -62,7 +69,6 @@ config_1B.pad_token_id = config_1B.eos_token_id
 config_1B.torch_dtype = "bfloat16"
 config_1B.attn_implementation = "flash_attention_2"
 config_1B.attn_dropout = attn_dropout
-config_1B.gradient_checkpointing = gradient_checkpointing
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
@@ -77,6 +83,33 @@ tokenizer.stride = stride
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
+
+
+class CustomSFTTrainer(SFTTrainer):
+    def create_optimizer(self):
+        decay_parameters = get_parameter_names(self.model, [nn.LayerNorm])
+        decay_parameters = [name for name in decay_parameters if "bias" not in name]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in self.model.named_parameters() if n in decay_parameters],
+                "weight_decay": self.args.weight_decay,
+            },
+            {
+                "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters],
+                "weight_decay": 0.0,
+            },
+        ]
+
+        optimizer_kwargs = {
+            "params": optimizer_grouped_parameters,
+            "betas": (self.args.adam_beta1, self.args.adam_beta2),
+            "eps": self.args.adam_epsilon,
+            "lr": self.args.learning_rate
+        }
+
+        self.optimizer = bnb.optim.Adam8bit(**optimizer_kwargs)
+
+        return self.optimizer
 
 
 # Custom callback for Optuna pruning
@@ -119,13 +152,11 @@ class Objective(TrainerCallback):
         # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
         lr_scheduler_type = "linear"
         # num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
-        num_train_epochs = 5
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
         per_device_train_batch_size = 1
         # warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
         warmup_ratio = 0.15
         # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 2)
-        gradient_accumulation_steps = 1
         # attn_dropout = trial.suggest_float("attn_dropout", 0.0, 0.1)
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
         dataset_size = 1000
@@ -133,32 +164,29 @@ class Objective(TrainerCallback):
         # Reset the best loss
         self.best_loss = np.inf
 
-        # Define the model initialization function
-        def model_init():
-            return MistralForCausalLM(config_1B).to(device)
-
         results_dir = f"{self.study_dir}/optuna_trial_{trial.number}"
         if not os.path.exists(results_dir):
             os.makedirs(results_dir)
 
         # TrainingArguments setup
-        training_args = TrainingArguments(
+        self.training_args = TrainingArguments(
             output_dir=results_dir,
             num_train_epochs=num_train_epochs,
             per_device_train_batch_size=per_device_train_batch_size,
             per_device_eval_batch_size=per_device_train_batch_size,
             gradient_accumulation_steps=gradient_accumulation_steps,
-            max_grad_norm=1.0,
+            gradient_checkpointing=gradient_checkpointing,
+            max_grad_norm=max_grad_norm,
             warmup_ratio=warmup_ratio,
             learning_rate=learning_rate,
             lr_scheduler_type=lr_scheduler_type,
+            optim=optim,
             evaluation_strategy="epoch",
             eval_steps=0.5 / num_train_epochs,
             logging_dir=f"{results_dir}/logs/",
             logging_strategy="no",
             logging_steps=0.5 / num_train_epochs,
             report_to="none",
-            optim=optim,
             save_strategy="no",
             bf16=True,  # Enable mixed-precision training
             bf16_full_eval=True,  # Enable mixed-precision evaluation
@@ -173,9 +201,9 @@ class Objective(TrainerCallback):
         config_1B.num_attention_heads = attention_heads
 
         # Initialize the trainer
-        trainer = SFTTrainer(
-            model_init=model_init,
-            args=training_args,
+        trainer = CustomSFTTrainer(
+            model_init=self.model_init,
+            args=self.training_args,
             train_dataset=self.dataset_train,
             eval_dataset=self.dataset_eval,
             dataset_text_field="text",
@@ -205,7 +233,6 @@ class Objective(TrainerCallback):
         print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
         print(f"  Dataset train size: {dataset_train_size}")
         print(f"  Dataset eval size: {dataset_eval_size}")
-
 
         # Save all the details to a JSON file in the results directory
         with open(f"{results_dir}/details.json", "w") as f:
@@ -250,6 +277,14 @@ class Objective(TrainerCallback):
 
         # Return the best loss
         return self.best_loss
+
+    def model_init(self) -> PreTrainedModel:
+        self.model = MistralForCausalLM(config_1B).to(device)
+
+        if self.training_args.gradient_checkpointing:
+            self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+        return self.model
 
     def prepare_dataset(self, dataset_size: int, dataset_split: float):
         prepared_dataset = None
