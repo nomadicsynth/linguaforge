@@ -25,8 +25,8 @@ hf_token = "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"  # I'm a bad person for hardc
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
-# Model settings - Model size: 823.18M parameters
-hidden_layers = 11  # Number of transformer layers
+# Model settings - Model size: 760.26M parameters
+hidden_layers = 10  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 8192  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
