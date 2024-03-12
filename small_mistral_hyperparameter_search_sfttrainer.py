@@ -25,6 +25,7 @@ intermediate_size = 4096  # Size of the feed-forward network in the transformer 
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
+gradient_checkpointing = False  # Use gradient checkpointing to reduce memory usage
 template_model_name = "mistralai/Mistral-7B-v0.1"  # Name of the tokenizer to use
 
 # Dataset settings
@@ -40,16 +41,13 @@ seed = 42
 lr_range = [1e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
-n_trials = 20  # Number of hyperparameter search trials
+n_trials = 4  # Number of hyperparameter search trials
 
 # Set seed for reproducibility
 set_seed(seed)
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# If there are multiple GPUs, use the second one
-if torch.cuda.device_count() > 1:
-    device = torch.device("cuda:0")
 print(f"Using device: {device}")
 
 # Configuration for a hypothetical <1B parameter model
@@ -63,6 +61,8 @@ config_1B.sliding_window = context_length,
 config_1B.pad_token_id = config_1B.eos_token_id
 config_1B.torch_dtype = "bfloat16"
 config_1B.attn_implementation = "flash_attention_2"
+config_1B.attn_dropout = attn_dropout
+config_1B.gradient_checkpointing = gradient_checkpointing
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
@@ -168,8 +168,9 @@ class Objective(TrainerCallback):
         # Prepare the dataset
         self.prepare_dataset(dataset_size, dataset_split)
 
-        # Set the dropout rate
+        # Set the dropout rate and attention heads
         config_1B.attention_dropout = attn_dropout
+        config_1B.num_attention_heads = attention_heads
 
         # Initialize the trainer
         trainer = SFTTrainer(
@@ -200,6 +201,7 @@ class Objective(TrainerCallback):
         print(f"  Epochs: {num_train_epochs}")
         print(f"  Warmup ratio: {warmup_ratio}")
         print(f"  Attention dropout: {attn_dropout}")
+        print(f"  Attention heads: {attention_heads}")
         print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
         print(f"  Dataset train size: {dataset_train_size}")
         print(f"  Dataset eval size: {dataset_eval_size}")
