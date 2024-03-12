@@ -97,24 +97,33 @@ class OptunaPruningCallback(TrainerCallback):
 
 # Objective function for Optuna
 class Objective(TrainerCallback):
-    def __init__(self, dataset: Union[dict, DatasetDict]):
+    def __init__(self, dataset: Union[dict, DatasetDict], study_name: str, study_dir: str):
         self.dataset = dataset
+        self.dataset_train = None
+        self.dataset_eval = None
+
+        self.study_name = study_name
+        self.study_dir = study_dir
+
         self.best_loss = np.inf
 
     def __call__(self, trial: optuna.Trial) -> float:
+        # Model settings search space
+        attention_heads = trial.suggest_categorical("attention_heads", [8, 16, 24, 32])
         # Hyperparameter search space
-        learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
-        # learning_rate = 9.8e-5
-        lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
+        # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+        learning_rate = 9.8e-5
+        # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
+        lr_scheduler_type = "linear"
         # num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
         num_train_epochs = 5
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
         per_device_train_batch_size = 1
         # warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
         warmup_ratio = 0.15
-        gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 2)
-        # gradient_accumulation_steps = 1
-        attn_dropout = trial.suggest_float("attn_dropout", 0.0, 0.1)
+        # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 2)
+        gradient_accumulation_steps = 1
+        # attn_dropout = trial.suggest_float("attn_dropout", 0.0, 0.1)
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
         dataset_size = 1000
 
@@ -125,7 +134,7 @@ class Objective(TrainerCallback):
         def model_init():
             return MistralForCausalLM(config_1B).to(device)
 
-        results_dir = f"./results/optuna_trial_{trial.number}"
+        results_dir = f"{self.study_dir}/optuna_trial_{trial.number}"
         if not os.path.exists(results_dir):
             os.makedirs(results_dir)
 
@@ -267,7 +276,7 @@ class Objective(TrainerCallback):
 # Optuna study
 def run_optuna_study():
     results_dir = "./results"
-    study_name = "llama2-small_hyperparameter_search"
+    study_name = "mistral-small_hyperparameter_search-attention_heads-8-32-1000"
     study_dir = f"{results_dir}/{study_name}"
     storage_name = f"sqlite:///{study_dir}/optuna.db"
 
