@@ -1,8 +1,11 @@
-torch
 accelerate
-transformers
+bitsandbytes
 datasets
-tensorboard
+flash-attn
+ninja
 optuna
-# flash-attn
+packaging
+tensorboard
+torch
+transformers
 trl
