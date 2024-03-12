@@ -25,9 +25,8 @@ template_model_name = "mistralai/Mistral-7B-v0.1"  # Name of the model to use as
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 5000  # Number of examples to use from the dataset
+dataset_size = 100000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
-stride = 50  # Stride for splitting the input into multiple sequences
 
 # Training settings
 seed = 42
@@ -37,7 +36,7 @@ num_train_epochs = 5
 per_device_train_batch_size = 1
 warmup_ratio = 0.15
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
-gradient_accumulation_steps = 1  # Number of gradient accumulation steps
+gradient_accumulation_steps = 2  # Number of gradient accumulation steps
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 results_dir = "./results/run-3"  # Directory to save the results
 
