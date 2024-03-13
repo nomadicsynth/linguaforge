@@ -160,6 +160,9 @@ class Objective(TrainerCallback):
         self.study_name = study_name
         self.study_dir = study_dir
 
+        if not os.path.exists(self.study_dir):
+            os.makedirs(self.study_dir)
+
         self.best_loss = np.inf
 
     def __call__(self, trial: optuna.Trial) -> float:
