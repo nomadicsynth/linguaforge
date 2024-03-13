@@ -27,7 +27,7 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 100000  # Number of examples to use from the dataset
+dataset_size = 10000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -56,7 +56,7 @@ else:
 
 print(f"Using device: {device}")
 
-# Configuration for a hypothetical <1B parameter model
+# Model settings - Model size: 760.26M parameters
 config_1B = MistralConfig().from_pretrained(template_model_name, token=hf_token)
 config_1B.hidden_size = hidden_size
 config_1B.intermediate_size = intermediate_size
