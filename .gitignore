@@ -3,3 +3,4 @@ results/
 __pycache__/
 result-backup/
 results-backup/
+.env

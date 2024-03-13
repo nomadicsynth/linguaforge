@@ -20,8 +20,12 @@ from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
 from typing import Union
 from transformers import PreTrainedModel
+import os
+from dotenv import load_dotenv
 
-hf_token = "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"  # I'm a bad person for hardcoding this
+# Load the environment variables
+load_dotenv()
+hf_token = os.getenv("HF_TOKEN")
 
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
