@@ -15,7 +15,7 @@ hf_token = "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"  # I'm a bad person for hardc
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
-# Model settings
+# Model settings - Model size: 760.26M parameters
 hidden_layers = 10  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 8192  # Size of the feed-forward network in the transformer layers
@@ -56,7 +56,7 @@ else:
 
 print(f"Using device: {device}")
 
-# Model settings - Model size: 760.26M parameters
+# Configuration for the model
 config_1B = MistralConfig().from_pretrained(template_model_name, token=hf_token)
 config_1B.hidden_size = hidden_size
 config_1B.intermediate_size = intermediate_size

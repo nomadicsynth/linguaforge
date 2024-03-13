@@ -76,7 +76,7 @@ set_seed(seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Configuration for a hypothetical <1B parameter model
+# Configuration for the model
 config_1B = MistralConfig().from_pretrained(template_model_name, token=hf_token)
 config_1B.hidden_size = hidden_size
 config_1B.intermediate_size = intermediate_size
