@@ -6,6 +6,7 @@ import numpy as np
 import optuna
 import os
 import pickle
+import time
 import torch
 from torch import nn
 from transformers import (
@@ -37,7 +38,7 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 1000  # Number of examples to use from the dataset
+dataset_size = 200  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -55,9 +56,10 @@ gradient_checkpointing = False  # Causes a segfault when enabled
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 
 # Optuna study settings
-study_name = "mistral-small_hyperparameter_search-attention_heads-8-32-1000"
+study_timestamp = time.strftime("%Y%m%d-%H%M%S")
+study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"./results/{study_name}"
-n_trials = 4  # Number of hyperparameter search trials
+n_trials = 20  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
 lr_range = [1e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
@@ -164,14 +166,15 @@ class Objective(TrainerCallback):
             os.makedirs(self.study_dir)
 
         self.best_loss = np.inf
+        self.best_perplexity = np.inf
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Model settings search space
         attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
         # Hyperparameter search space
-        # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
-        # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
+        learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+        lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
         # num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
         # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
@@ -181,6 +184,9 @@ class Objective(TrainerCallback):
 
         # Reset the best loss
         self.best_loss = np.inf
+
+        # Reset the perplexity
+        self.best_perplexity = np.inf
 
         results_dir = f"{self.study_dir}/optuna_trial_{trial.number}"
         if not os.path.exists(results_dir):
@@ -202,7 +208,7 @@ class Objective(TrainerCallback):
             evaluation_strategy="epoch",
             eval_steps=0.5 / num_train_epochs,
             logging_dir=f"{results_dir}/logs/",
-            logging_strategy="no",
+            logging_strategy="steps",
             logging_steps=0.5 / num_train_epochs,
             report_to="none",
             save_strategy="no",
@@ -228,7 +234,7 @@ class Objective(TrainerCallback):
             packing=True,
             max_seq_length=context_length,
             tokenizer=tokenizer,
-            callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
+            callbacks=[self, OptunaPruningCallback(trial, monitor="perplexity")],
         )
 
         # Print the model size with suffix 'G' or 'M'
@@ -293,8 +299,11 @@ class Objective(TrainerCallback):
         # Train the model
         trainer.train()
 
-        # Return the best loss
-        return self.best_loss
+        # Save the model
+        trainer.save_model(f"{results_dir}/model")
+
+        # Return the best perplexity
+        return self.best_perplexity
 
     def model_init(self) -> PreTrainedModel:
         self.model = MistralForCausalLM(config_1B).to(device)
@@ -331,12 +340,14 @@ class Objective(TrainerCallback):
         if eval_loss < self.best_loss:
             self.best_loss = eval_loss
 
+        # Calculate the perplexity
+        perplexity = math.exp(eval_loss)
+        if perplexity < self.best_perplexity:
+            self.best_perplexity = perplexity
+
 
 # Optuna study
 def run_optuna_study():
-    results_dir = "./results"
-    study_name = "mistral-small_hyperparameter_search-attention_heads-8-32-1000"
-    study_dir = f"{results_dir}/{study_name}"
     storage_name = f"sqlite:///{study_dir}/optuna.db"
 
     if not os.path.exists(study_dir):
