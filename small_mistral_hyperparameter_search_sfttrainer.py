@@ -38,7 +38,7 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 200  # Number of examples to use from the dataset
+dataset_size = 10  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -63,7 +63,7 @@ n_trials = 20  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
 lr_range = [1e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
-attention_heads_categorical = [8, 16, 24, 32]  # Categorical values for the number of attention heads
+attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
 train_epochs_range = [1, 10]  # Range of training epochs to use for hyperparameter search
 per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
@@ -234,7 +234,7 @@ class Objective(TrainerCallback):
             packing=True,
             max_seq_length=context_length,
             tokenizer=tokenizer,
-            callbacks=[self, OptunaPruningCallback(trial, monitor="perplexity")],
+            callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
         )
 
         # Print the model size with suffix 'G' or 'M'
@@ -302,8 +302,8 @@ class Objective(TrainerCallback):
         # Save the model
         trainer.save_model(f"{results_dir}/model")
 
-        # Return the best perplexity
-        return self.best_perplexity
+        # Return the best loss
+        return self.best_loss
 
     def model_init(self) -> PreTrainedModel:
         self.model = MistralForCausalLM(config_1B).to(device)
