@@ -164,15 +164,16 @@ class Objective(TrainerCallback):
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Model settings search space
-        attention_heads = trial.suggest_categorical("attention_heads", [8, 16, 24, 32])
+        attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
+
         # Hyperparameter search space
         # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
         # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
-        # num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
-        # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
-        # warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
-        # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 2)
-        # attn_dropout = trial.suggest_float("attn_dropout", 0.0, 0.1)
+        # num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
+        # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
+        # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
+        # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", gradient_accumulation_steps_range[0], gradient_accumulation_steps_range[1])
+        # attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
 
         # Reset the best loss
