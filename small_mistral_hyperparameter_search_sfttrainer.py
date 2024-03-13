@@ -26,10 +26,10 @@ hf_token = "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"  # I'm a bad person for hardc
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
-# Model settings - Model size: 760.26M parameters
-hidden_layers = 10  # Number of transformer layers
+# Model settings - Model size: approx 420M parameters
+hidden_layers = 8  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
-intermediate_size = 8192  # Size of the feed-forward network in the transformer layers
+intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
@@ -38,7 +38,7 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 10  # Number of examples to use from the dataset
+dataset_size = 500  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -46,8 +46,8 @@ stride = 50  # Stride for splitting the input into multiple sequences. Doesn't w
 seed = 42  # Random seed for reproducibility
 learning_rate = 9.8e-5  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 1  # Number of training epochs
-per_device_train_batch_size = 1  # Batch size per GPU/TPU core/CPU for training
+num_train_epochs = 2  # Number of training epochs
+per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.15  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
@@ -61,10 +61,10 @@ study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"./results/{study_name}"
 n_trials = 20  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
-lr_range = [1e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
+lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
-train_epochs_range = [1, 10]  # Range of training epochs to use for hyperparameter search
+train_epochs_range = [1, 3]  # Range of training epochs to use for hyperparameter search
 per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
 gradient_accumulation_steps_range = [1, 2]  # Range of gradient accumulation steps to use for hyperparameter search
@@ -174,7 +174,7 @@ class Objective(TrainerCallback):
 
         # Hyperparameter search space
         learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
-        lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
+        # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
         # num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
         # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
