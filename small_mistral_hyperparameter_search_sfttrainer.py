@@ -37,20 +37,37 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size_range = [500, 500]  # Range of dataset sizes to use for hyperparameter search
+dataset_size = 1000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
-stride = 50  # Stride for splitting the input into multiple sequences
+stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
 # Training settings
-seed = 42
-lr_range = [1e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
-lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
+seed = 42  # Random seed for reproducibility
+learning_rate = 9.8e-5  # Learning rate for the AdamW optimizer
+lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 1  # Number of training epochs
+per_device_train_batch_size = 1  # Batch size per GPU/TPU core/CPU for training
+warmup_ratio = 0.15  # Ratio of the number of warmup steps to the total number of training steps
+weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
 gradient_checkpointing = False  # Causes a segfault when enabled
 optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
+
+# Optuna study settings
+study_name = "mistral-small_hyperparameter_search-attention_heads-8-32-1000"
+study_dir = f"./results/{study_name}"
 n_trials = 4  # Number of hyperparameter search trials
+dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
+lr_range = [1e-5, 1e-4]  # Range of learning rates to use for hyperparameter search
+lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
+attention_heads_categorical = [8, 16, 24, 32]  # Categorical values for the number of attention heads
+train_epochs_range = [1, 10]  # Range of training epochs to use for hyperparameter search
+per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
+warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
+gradient_accumulation_steps_range = [1, 2]  # Range of gradient accumulation steps to use for hyperparameter search
+attn_dropout_range = [0.0, 0.1]  # Range of attention dropout rates to use for hyperparameter search
+
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -150,18 +167,13 @@ class Objective(TrainerCallback):
         attention_heads = trial.suggest_categorical("attention_heads", [8, 16, 24, 32])
         # Hyperparameter search space
         # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
-        learning_rate = 9.8e-5
         # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
-        lr_scheduler_type = "linear"
         # num_train_epochs = trial.suggest_int("num_train_epochs", 1, 10)
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", 1, 3)
-        per_device_train_batch_size = 1
         # warmup_ratio = trial.suggest_float("warmup_ratio", 0.1, 0.2)
-        warmup_ratio = 0.15
         # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", 1, 2)
         # attn_dropout = trial.suggest_float("attn_dropout", 0.0, 0.1)
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
-        dataset_size = 1000
 
         # Reset the best loss
         self.best_loss = np.inf
@@ -355,7 +367,7 @@ def run_optuna_study():
         print(f"      {key}: {value}")
 
     # Save the study
-    with open(f"./results/optuna_study.pkl", "wb") as f:
+    with open(f"{study_name}/optuna_study.pkl", "wb") as f:
         pickle.dump(study, f)
 
 
