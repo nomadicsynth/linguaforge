@@ -34,7 +34,7 @@ template_model_name = "mistralai/Mistral-7B-v0.1"
 hidden_layers = 8  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
-attention_heads = 32  # Number of attention heads
+attention_heads = 64  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
 
@@ -42,13 +42,13 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 500  # Number of examples to use from the dataset
+dataset_size = 250  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
 # Training settings
 seed = 42  # Random seed for reproducibility
-learning_rate = 9.8e-5  # Learning rate for the AdamW optimizer
+learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 2  # Number of training epochs
 per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
@@ -63,23 +63,27 @@ optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"./results/{study_name}"
-n_trials = 20  # Number of hyperparameter search trials
+n_trials = 50  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
 lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
-train_epochs_range = [1, 3]  # Range of training epochs to use for hyperparameter search
+train_epochs_range = [2, 6]  # Range of training epochs to use for hyperparameter search
 per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
 gradient_accumulation_steps_range = [1, 2]  # Range of gradient accumulation steps to use for hyperparameter search
-attn_dropout_range = [0.0, 0.1]  # Range of attention dropout rates to use for hyperparameter search
+attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
 
 
 # Set seed for reproducibility
 set_seed(seed)
 
 # Set device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    raise RuntimeError("No CUDA device found. Please use a CUDA-enabled device for training.")
+
 print(f"Using device: {device}")
 
 # Configuration for the model
@@ -174,16 +178,16 @@ class Objective(TrainerCallback):
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Model settings search space
-        attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
+        # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
         # Hyperparameter search space
-        learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+        # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
         # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
-        # num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
+        num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
-        # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
+        warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
         # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", gradient_accumulation_steps_range[0], gradient_accumulation_steps_range[1])
-        # attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
+        attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
 
         # Reset the best loss
@@ -259,8 +263,8 @@ class Objective(TrainerCallback):
         print(f"  Attention dropout: {attn_dropout}")
         print(f"  Attention heads: {attention_heads}")
         print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
-        print(f"  Dataset train size: {dataset_train_size}")
-        print(f"  Dataset eval size: {dataset_eval_size}")
+        print(f"  Training set size: {dataset_train_size}")
+        print(f"  Evaluation set size: {dataset_eval_size}")
 
         # Save all the details to a JSON file in the results directory
         with open(f"{results_dir}/details.json", "w") as f:
