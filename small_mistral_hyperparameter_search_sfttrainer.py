@@ -386,7 +386,7 @@ def run_optuna_study():
         print(f"      {key}: {value}")
 
     # Save the study
-    with open(f"{study_name}/optuna_study.pkl", "wb") as f:
+    with open(f"{study_dir}/optuna_study.pkl", "wb") as f:
         pickle.dump(study, f)
 
 
