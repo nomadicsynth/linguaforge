@@ -1,13 +1,17 @@
 from datasets import load_dataset, DatasetDict
+import bitsandbytes as bnb
 import json
 import os
+import time
 import torch
+from torch import nn
 from transformers import (
     MistralForCausalLM,
     MistralConfig,
     AutoTokenizer,
     TrainingArguments,
 )
+from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
 
 hf_token = "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"  # I'm a bad person for hardcoding this
@@ -15,11 +19,11 @@ hf_token = "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"  # I'm a bad person for hardc
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
-# Model settings - Model size: 760.26M parameters
-hidden_layers = 10  # Number of transformer layers
+# Model settings - Model size: approx 420M parameters
+hidden_layers = 8  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
-intermediate_size = 8192  # Size of the feed-forward network in the transformer layers
-attention_heads = 32  # Number of attention heads
+intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
+attention_heads = 64  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
 
@@ -27,17 +31,17 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 10000  # Number of examples to use from the dataset
+dataset_size = 0  # Number of examples to use from the dataset. 0 to use the entire dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
 # Training settings
-results_dir = "./results/run-3"  # Directory to save the results
+results_dir = f"./results/run-{time.strftime('%Y%m%d-%H%M%S')}"  # Directory to save the results
 seed = 42  # Random seed for reproducibility
-learning_rate = 9.8e-5  # Learning rate for the AdamW optimizer
+learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 1  # Number of training epochs
-per_device_train_batch_size = 1  # Batch size per GPU/TPU core/CPU for training
+num_train_epochs = 2  # Number of training epochs
+per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.15  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
@@ -67,6 +71,7 @@ config_1B.sliding_window = context_length,
 config_1B.pad_token_id = config_1B.eos_token_id
 config_1B.torch_dtype = "bfloat16"
 config_1B.attn_implementation = "flash_attention_2"
+config_1B.attn_dropout = attn_dropout
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
@@ -81,6 +86,33 @@ tokenizer.model_max_length = context_length
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
+
+
+class CustomSFTTrainer(SFTTrainer):
+    def create_optimizer(self):
+        decay_parameters = get_parameter_names(self.model, [nn.LayerNorm])
+        decay_parameters = [name for name in decay_parameters if "bias" not in name]
+        optimizer_grouped_parameters = [
+            {
+                "params": [p for n, p in self.model.named_parameters() if n in decay_parameters],
+                "weight_decay": self.args.weight_decay,
+            },
+            {
+                "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters],
+                "weight_decay": 0.0,
+            },
+        ]
+
+        optimizer_kwargs = {
+            "params": optimizer_grouped_parameters,
+            "betas": (self.args.adam_beta1, self.args.adam_beta2),
+            "eps": self.args.adam_epsilon,
+            "lr": self.args.learning_rate
+        }
+
+        self.optimizer = bnb.optim.Adam8bit(**optimizer_kwargs)
+
+        return self.optimizer
 
 
 # Define the model initialization function
@@ -149,7 +181,7 @@ def run_training(
     model = model_init(model_config)
 
     # Initialize the trainer
-    trainer = SFTTrainer(
+    trainer = CustomSFTTrainer(
         model=model,
         args=training_args,
         train_dataset=dataset_train,
@@ -168,18 +200,6 @@ def run_training(
     dataset_train_size = len(dataset_train)
     dataset_eval_size = len(dataset_eval)
 
-    dataset,
-    learning_rate,
-    lr_scheduler_type,
-    num_train_epochs,
-    per_device_train_batch_size,
-    warmup_ratio,
-    gradient_accumulation_steps,
-    dataset_size,
-    results_dir,
-    dataset_split,
-    optim
-
     # Print the hyperparameters
     print("Hyperparameters:")
     print(f"  Dataset: {dataset_name} ({dataset_config})")
@@ -189,6 +209,8 @@ def run_training(
     print(f"  Per-device train batch size: {per_device_train_batch_size}")
     print(f"  Epochs: {num_train_epochs}")
     print(f"  Warmup ratio: {warmup_ratio}")
+    print(f"  Attention dropout: {attn_dropout}")
+    print(f"  Attention heads: {attention_heads}")
     print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
     print(f"  Training set size: {dataset_train_size}")
     print(f"  Evaluation set size: {dataset_eval_size}")
@@ -200,17 +222,32 @@ def run_training(
     with open(f"{results_dir}/details.json", "w") as f:
         json.dump(
             {
-                "dataset": f"{dataset_name} ({dataset_config})",
                 "model_size": f"{model_size:.2f}{model_size_suffix}",
                 "learning_rate": learning_rate,
                 "lr_scheduler_type": lr_scheduler_type,
                 "per_device_train_batch_size": per_device_train_batch_size,
                 "epochs": num_train_epochs,
                 "warmup_ratio": warmup_ratio,
+                "attention_dropout": attn_dropout,
                 "gradient_accumulation_steps": gradient_accumulation_steps,
                 "dataset_train_size": dataset_train_size,
                 "dataset_eval_size": dataset_eval_size,
-                "results_dir": results_dir,
+                # Model settings
+                "hidden_layers": hidden_layers,
+                "hidden_size": hidden_size,
+                "intermediate_size": intermediate_size,
+                "attention_heads": attention_heads,
+                "attn_dropout": attn_dropout,
+                "context_length": context_length,
+                "template_model_name": template_model_name,
+                # Dataset settings
+                "dataset_name": dataset_name,
+                "dataset_config": dataset_config,
+                "dataset_path": dataset_path,
+                "dataset_split": dataset_split,
+                "stride": stride,
+                # Training settings
+                "seed": seed,
                 "optim": optim,
             },
             f,
