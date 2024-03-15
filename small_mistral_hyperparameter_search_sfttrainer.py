@@ -62,7 +62,7 @@ optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 # Optuna study settings
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
-study_dir = f"./results/{study_name}"
+study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
 n_trials = 50  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
 lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search

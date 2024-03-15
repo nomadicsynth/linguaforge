@@ -24,25 +24,25 @@ hidden_layers = 8  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 64  # Number of attention heads
-attn_dropout = 0.1  # Dropout rate for the attention probabilities
+attn_dropout = 0.19  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
 
 # Dataset settings
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 0  # Number of examples to use from the dataset. 0 to use the entire dataset
+dataset_size = 100000  # Number of examples to use from the dataset. 0 to use the entire dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
 # Training settings
-results_dir = f"./results/run-{time.strftime('%Y%m%d-%H%M%S')}"  # Directory to save the results
+results_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-{time.strftime('%Y%m%d-%H%M%S')}"  # Directory to save the results
 seed = 42  # Random seed for reproducibility
 learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 2  # Number of training epochs
+num_train_epochs = 5  # Number of training epochs
 per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
-warmup_ratio = 0.15  # Ratio of the number of warmup steps to the total number of training steps
+warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
