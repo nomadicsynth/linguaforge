@@ -29,7 +29,7 @@ model_path = "/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-202
 dataset_name = "teknium/OpenHermes-2.5"  # Name of the dataset to use
 dataset_config = "default"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/OpenHermes-2.5-chatML"  # Path to the dataset
-dataset_size = 5000  # Number of examples to use from the dataset
+dataset_size = 10000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
@@ -88,7 +88,7 @@ tokenizer.chat_template = "{% if not add_generation_prompt is defined %}{% set a
 # Load the dataset
 print(f"Loading the dataset from {dataset_path} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
-# dataset = dataset.shuffle()
+dataset = dataset.shuffle()
 
 
 class CustomSFTTrainer(SFTTrainer):
