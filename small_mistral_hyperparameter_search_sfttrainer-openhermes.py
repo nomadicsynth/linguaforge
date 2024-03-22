@@ -28,8 +28,8 @@ model_path = "/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-202
 # Dataset settings
 dataset_name = "teknium/OpenHermes-2.5"  # Name of the dataset to use
 dataset_config = "default"  # Configuration of the dataset to use
-dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/OpenHermes-2.5/openhermes2_5.json"  # Path to the dataset
-dataset_size = 10000  # Number of examples to use from the dataset
+dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/OpenHermes-2.5-chatML"  # Path to the dataset
+dataset_size = 1000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
@@ -84,7 +84,8 @@ tokenizer.chat_template = "<s>{% if not add_generation_prompt is defined %}{% se
 
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
-dataset = load_dataset("json", data_files=dataset_path)
+dataset = load_dataset(dataset_path)
+dataset = dataset.shuffle()
 
 
 class CustomSFTTrainer(SFTTrainer):
@@ -207,8 +208,7 @@ class Objective(TrainerCallback):
             args=self.training_args,
             train_dataset=self.dataset_train,
             eval_dataset=self.dataset_eval,
-            dataset_text_field="conversations",
-            formatting_func=self.format_conversations,
+            dataset_text_field="text",
             packing=True,
             max_seq_length=2048,
             tokenizer=tokenizer,
