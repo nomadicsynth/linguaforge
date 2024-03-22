@@ -29,7 +29,7 @@ model_path = "/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-202
 dataset_name = "teknium/OpenHermes-2.5"  # Name of the dataset to use
 dataset_config = "default"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/OpenHermes-2.5-chatML"  # Path to the dataset
-dataset_size = 1000  # Number of examples to use from the dataset
+dataset_size = 5000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
@@ -37,7 +37,7 @@ seed = 42  # Random seed for reproducibility
 learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 5  # Number of training epochs
-per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
+per_device_train_batch_size = 3  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
@@ -49,7 +49,7 @@ optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small-openhermes_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 50  # Number of hyperparameter search trials
+n_trials = 20  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
 lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
@@ -77,15 +77,18 @@ tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-seque
 tokenizer.padding_side = 'right'
 
 # Add chatML tokens to the tokenizer
-tokenizer.add_special_tokens({"additional_special_tokens": ["<|im_start|>", "<|im_end|>"]})
+tokenizer.add_special_tokens(
+    {"additional_special_tokens": ["<|im_start|>", "<|im_end|>"]},
+    replace_additional_special_tokens=False
+)
 
 # Set the chat template
-tokenizer.chat_template = "<s>{% if not add_generation_prompt is defined %}{% set add_generation_prompt = false %}{% endif %}{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}</s>"
+tokenizer.chat_template = "{% if not add_generation_prompt is defined %}{% set add_generation_prompt = false %}{% endif %}{% for message in messages %}{{'<|im_start|>' + message['role'] + '\n' + message['content'] + '<|im_end|>' + '\n'}}{% endfor %}{% if add_generation_prompt %}{{ '<|im_start|>assistant\n' }}{% endif %}"
 
 # Load the dataset
-print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
-dataset = load_dataset(dataset_path)
-dataset = dataset.shuffle()
+print(f"Loading the dataset from {dataset_path} ({dataset_config})...")
+dataset = load_dataset(dataset_path, dataset_config)
+# dataset = dataset.shuffle()
 
 
 class CustomSFTTrainer(SFTTrainer):
@@ -274,10 +277,13 @@ class Objective(TrainerCallback):
         return self.best_loss
 
     def model_init(self) -> PreTrainedModel:
-        self.model = MistralForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16).to(device)
-
+        self.model = MistralForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16)
+        self.model.resize_token_embeddings(len(tokenizer))
+        
         if self.training_args.gradient_checkpointing:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+        self.model = self.model.to(device)
 
         return self.model
 
