@@ -24,19 +24,20 @@ from dotenv import load_dotenv
 
 # The model to finetune
 model_path = "/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-20240315-211134/checkpoint-56144"
+context_length = 2048  # Maximum sequence length
 
 # Dataset settings
 dataset_name = "teknium/OpenHermes-2.5"  # Name of the dataset to use
 dataset_config = "default"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/OpenHermes-2.5-chatML"  # Path to the dataset
-dataset_size = 10000  # Number of examples to use from the dataset
+dataset_size = 15000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
 seed = 42  # Random seed for reproducibility
 learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 5  # Number of training epochs
+num_train_epochs = 4  # Number of training epochs
 per_device_train_batch_size = 3  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
@@ -51,7 +52,7 @@ study_name = f"mistral-small-openhermes_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
 n_trials = 20  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
-lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search
+lr_range = [1e-6, 5e-4]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
 train_epochs_range = [2, 6]  # Range of training epochs to use for hyperparameter search
@@ -75,6 +76,9 @@ print(f"Loading the tokenizer from {model_path}...")
 tokenizer = AutoTokenizer.from_pretrained(model_path)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 tokenizer.padding_side = 'right'
+
+# Set stride for splitting the input into multiple sequences
+tokenizer.model_max_length = context_length
 
 # Add chatML tokens to the tokenizer
 tokenizer.add_special_tokens(
