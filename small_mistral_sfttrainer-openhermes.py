@@ -21,7 +21,7 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "teknium/OpenHermes-2.5"  # Name of the dataset to use
 dataset_config = "default"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/OpenHermes-2.5-chatML"  # Path to the dataset
-dataset_size = 1000  # Number of examples to use from the dataset
+dataset_size = 0  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 
 # Training settings
@@ -220,7 +220,14 @@ def run_training(
 
 # Define the model initialization function
 def model_init(model_path: str) -> MistralForCausalLM:
-    model = MistralForCausalLM(model_path).to(device)
+    model = MistralForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16)
+    model.resize_token_embeddings(len(tokenizer))
+    
+    if gradient_checkpointing:
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+    model = model.to(device)
+
     return model
 
 
