@@ -8,13 +8,15 @@ parser.add_argument("--prompt", type=str, required=True, help="The prompt to gen
 parser.add_argument("--model_path", type=str, required=True, help="The path to the model checkpoint")
 parser.add_argument("--max_length", type=int, default=50, help="The maximum length of the generated text")
 parser.add_argument("--temperature", type=float, default=1.0, help="The temperature for sampling")
+parser.add_argument("--device", type=str, default="cpu", help="The device to run the model on")
 args = parser.parse_args()
 
 model_path = args.model_path
 
 # Set device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device("cpu")
+device = torch.device(args.device)
+if device.type == "cuda" and not torch.cuda.is_available():
+    raise ValueError("CUDA is not available, please run on CPU")
 
 # Load tokenizer
 # tokenizer_name = "meta-llama/Llama-2-7b-hf"
