@@ -218,6 +218,9 @@ def run_training(
     # Train the model
     trainer.train()
 
+    # Save the model
+    trainer.save_model(f"{results_dir}/model")
+
 
 # Define the model initialization function
 def model_init(model_path: str) -> MistralForCausalLM:
