@@ -19,10 +19,7 @@ if device.type == "cuda" and not torch.cuda.is_available():
     raise ValueError("CUDA is not available, please run on CPU")
 
 # Load tokenizer
-# tokenizer_name = "meta-llama/Llama-2-7b-hf"
-# tokenizer_name = "mistralai/Mistral-7B-v0.1"
 tokenizer = AutoTokenizer.from_pretrained(model_path)
-# tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 
 streamer = TextStreamer(tokenizer)
 
@@ -33,7 +30,13 @@ model.eval()
 # Move model to device
 model = model.to(device)
 
-# Generate text
 input_text = args.prompt
+
+# If the tokeniser has a chat template, apply it to the input text
+if hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None:
+    conversation_history = [{"role": "user", "content": input_text}]
+    input_text = tokenizer.apply_chat_template(conversation_history, add_generation_prompt=True, tokenize=False)
+
+# Generate text
 input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
 _ = model.generate(input_ids, streamer=streamer, do_sample=True, max_length=args.max_length, temperature=args.temperature)
