@@ -39,4 +39,8 @@ if hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None:
 
 # Generate text
 input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
-_ = model.generate(input_ids, streamer=streamer, do_sample=True, max_length=args.max_length, temperature=args.temperature)
+try:
+    _ = model.generate(input_ids, streamer=streamer, do_sample=True, max_length=args.max_length, temperature=args.temperature)
+except KeyboardInterrupt:
+    print("\n\nGeneration interrupted by user")
+    exit(0)
