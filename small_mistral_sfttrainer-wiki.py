@@ -13,8 +13,12 @@ from transformers import (
 )
 from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
+import os
+from dotenv import load_dotenv
 
-hf_token = "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"  # I'm a bad person for hardcoding this
+# Load the environment variables
+load_dotenv()
+hf_token = os.getenv("HF_TOKEN")
 
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
@@ -23,7 +27,7 @@ template_model_name = "mistralai/Mistral-7B-v0.1"
 hidden_layers = 8  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
-attention_heads = 64  # Number of attention heads
+attention_heads = 32  # Number of attention heads
 attn_dropout = 0.19  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
 
@@ -31,16 +35,17 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 100000  # Number of examples to use from the dataset. 0 to use the entire dataset
+dataset_size = 336000 * 5  # Number of examples to use from the dataset. 0 to use the entire dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
 # Training settings
-results_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-{time.strftime('%Y%m%d-%H%M%S')}"  # Directory to save the results
+# Directory to save the results
+results_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-{time.strftime('%Y%m%d-%H%M%S')}"
 seed = 42  # Random seed for reproducibility
 learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
-lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 5  # Number of training epochs
+lr_scheduler_type = "polynomial"  # Type of learning rate scheduler to use
+num_train_epochs = 1  # Number of training epochs
 per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
@@ -158,14 +163,15 @@ def run_training(
         weight_decay=weight_decay,
         learning_rate=learning_rate,
         lr_scheduler_type=lr_scheduler_type,
-        evaluation_strategy="epoch",
-        eval_steps=0.5 / num_train_epochs,
+        evaluation_strategy="steps",
+        eval_steps=1/14 / num_train_epochs,
         logging_dir=f"{results_dir}/logs/",
         logging_strategy="steps",
         logging_steps=100,
         report_to="tensorboard",
         optim="adamw_torch",
-        save_strategy="epoch",
+        save_strategy="steps",
+        save_steps=1/14 / num_train_epochs,
         bf16=True,  # Enable mixed-precision training
         bf16_full_eval=True,  # Enable mixed-precision evaluation
         seed=seed,
