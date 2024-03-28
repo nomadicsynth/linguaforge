@@ -77,6 +77,8 @@ config_1B.pad_token_id = config_1B.eos_token_id
 config_1B.torch_dtype = "bfloat16"
 config_1B.attn_implementation = "flash_attention_2"
 config_1B.attn_dropout = attn_dropout
+config_1B.add_cross_attention = True
+config_1B.cross_attention_hidden_size = 256
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
