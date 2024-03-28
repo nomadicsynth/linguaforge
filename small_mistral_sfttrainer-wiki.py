@@ -265,11 +265,13 @@ def run_training(
     trainer.train()
 
 
-def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, seed: int = 42):
+def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, seed: int = 42, shuffle: bool = True):
     prepared_dataset = None
+    if shuffle:
+        dataset["train"] = dataset["train"].shuffle(seed=seed)
     # Select the first dataset_size examples from the training set
     if dataset_size > 0:
-        print("Selecting the first", dataset_size, "examples from the dataset...")
+        print("Selecting", dataset_size, "examples from the dataset...")
         prepared_dataset = dataset["train"].select(range(dataset_size))
     else:
         dataset_size = len(dataset["train"])
