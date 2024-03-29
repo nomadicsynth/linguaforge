@@ -35,7 +35,7 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 336000 * 5  # Number of examples to use from the dataset. 0 to use the entire dataset
+dataset_size = 1.5e6  # Number of examples to use from the dataset. 0 to use the entire dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -47,7 +47,7 @@ learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "polynomial"  # Type of learning rate scheduler to use
 num_train_epochs = 1  # Number of training epochs
 per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
-warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
+warmup_ratio = 0.010  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
@@ -161,7 +161,7 @@ def run_training(
         per_device_eval_batch_size=per_device_train_batch_size,
         gradient_accumulation_steps=gradient_accumulation_steps,
         max_grad_norm=1.0,
-        warmup_ratio=warmup_ratio,
+        warmup_steps=500,
         weight_decay=weight_decay,
         learning_rate=learning_rate,
         lr_scheduler_type=lr_scheduler_type,
