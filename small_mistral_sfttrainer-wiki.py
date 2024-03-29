@@ -169,7 +169,7 @@ def run_training(
         eval_steps=1/14 / num_train_epochs,
         logging_dir=f"{results_dir}/logs/",
         logging_strategy="steps",
-        logging_steps=100,
+        logging_steps=500,
         report_to="tensorboard",
         optim="adamw_torch",
         save_strategy="steps",
