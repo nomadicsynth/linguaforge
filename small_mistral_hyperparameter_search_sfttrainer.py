@@ -31,10 +31,10 @@ hf_token = os.getenv("HF_TOKEN")
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
 # Model settings - Model size: approx 420M parameters
-hidden_layers = 8  # Number of transformer layers
+hidden_layers = 1  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
-attention_heads = 64  # Number of attention heads
+attention_heads = 32  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 2048  # Maximum sequence length
 
@@ -42,7 +42,7 @@ context_length = 2048  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 500  # Number of examples to use from the dataset
+dataset_size = 10000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -66,7 +66,7 @@ study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{stu
 n_trials = 50  # Number of hyperparameter search trials
 dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
 lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search
-lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts"]  # Learning rate scheduler types
+lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]  # Categorical values for the learning rate scheduler type
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
 train_epochs_range = [2, 6]  # Range of training epochs to use for hyperparameter search
 per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
@@ -181,12 +181,12 @@ class Objective(TrainerCallback):
         # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
         # Hyperparameter search space
-        # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
-        # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
+        learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+        lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
         num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
         warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
-        # gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", gradient_accumulation_steps_range[0], gradient_accumulation_steps_range[1])
+        gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", gradient_accumulation_steps_range[0], gradient_accumulation_steps_range[1])
         attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
 
@@ -214,10 +214,10 @@ class Objective(TrainerCallback):
             lr_scheduler_type=lr_scheduler_type,
             optim=optim,
             evaluation_strategy="epoch",
-            eval_steps=0.5 / num_train_epochs,
+            # eval_steps=0.5 / num_train_epochs,
             logging_dir=f"{results_dir}/logs/",
             logging_strategy="steps",
-            logging_steps=0.5 / num_train_epochs,
+            logging_steps=0.1 / num_train_epochs,
             report_to="none",
             save_strategy="no",
             bf16=True,  # Enable mixed-precision training
@@ -242,7 +242,8 @@ class Objective(TrainerCallback):
             packing=True,
             max_seq_length=context_length,
             tokenizer=tokenizer,
-            callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
+            callbacks=[self],
+            # callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
         )
 
         # Print the model size with suffix 'G' or 'M'
@@ -361,11 +362,17 @@ def run_optuna_study():
     if not os.path.exists(study_dir):
         os.makedirs(study_dir)
 
+    # Use default sampler
+    sampler = None
+
     # Use TPE sampler
-    sampler = optuna.samplers.TPESampler(seed=seed)
+    # sampler = optuna.samplers.TPESampler(seed=seed)
+
+    # Use default pruner
+    pruner = None
 
     # Use Median pruner
-    pruner = optuna.pruners.MedianPruner()
+    # pruner = optuna.pruners.MedianPruner()
 
     study = optuna.create_study(
         direction="minimize",
