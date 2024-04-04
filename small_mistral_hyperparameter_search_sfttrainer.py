@@ -36,13 +36,13 @@ hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
-context_length = 2048  # Maximum sequence length
+context_length = 512  # Maximum sequence length
 
 # Dataset settings
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 10000  # Number of examples to use from the dataset
+dataset_size = 2000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -51,8 +51,8 @@ seed = 42  # Random seed for reproducibility
 learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 2  # Number of training epochs
-per_device_train_batch_size = 2  # Batch size per GPU/TPU core/CPU for training
-warmup_ratio = 0.15  # Ratio of the number of warmup steps to the total number of training steps
+per_device_train_batch_size = 16  # Batch size per GPU/TPU core/CPU for training
+warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
@@ -68,11 +68,13 @@ dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparam
 lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]  # Categorical values for the learning rate scheduler type
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
-train_epochs_range = [2, 6]  # Range of training epochs to use for hyperparameter search
+train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparameter search
 per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
-gradient_accumulation_steps_range = [1, 2]  # Range of gradient accumulation steps to use for hyperparameter search
+gradient_accumulation_steps_categorical = [1, 2, 4, 8, 16, 32, 64]  # Categorical values for the number of gradient accumulation steps
 attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
+weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
+max_grad_norm_range = [0.5, 1.0]  # Range of maximum gradient norms to use for hyperparameter search
 
 
 # Set seed for reproducibility
@@ -178,16 +180,18 @@ class Objective(TrainerCallback):
 
     def __call__(self, trial: optuna.Trial) -> float:
         # Model settings search space
-        # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
+        attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
         # Hyperparameter search space
         learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
         lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
         num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
         # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
-        warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
-        gradient_accumulation_steps = trial.suggest_int("gradient_accumulation_steps", gradient_accumulation_steps_range[0], gradient_accumulation_steps_range[1])
+        # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
+        gradient_accumulation_steps = trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical)
         attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
+        weight_decay = trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1])
+        max_grad_norm = trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1])
         # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
 
         # Reset the best loss
@@ -213,13 +217,15 @@ class Objective(TrainerCallback):
             learning_rate=learning_rate,
             lr_scheduler_type=lr_scheduler_type,
             optim=optim,
+            weight_decay=weight_decay,
             evaluation_strategy="epoch",
             # eval_steps=0.5 / num_train_epochs,
             logging_dir=f"{results_dir}/logs/",
             logging_strategy="steps",
             logging_steps=0.1 / num_train_epochs,
             report_to="none",
-            save_strategy="no",
+            save_strategy="epoch",
+            # load_best_model_at_end=True,
             bf16=True,  # Enable mixed-precision training
             bf16_full_eval=True,  # Enable mixed-precision evaluation
             seed=seed,
