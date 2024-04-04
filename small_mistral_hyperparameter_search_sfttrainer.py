@@ -1,3 +1,9 @@
+# Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
+import torch
+from torch import nn
+
 from datasets import load_dataset, DatasetDict
 import bitsandbytes as bnb
 import json
@@ -7,8 +13,7 @@ import optuna
 import os
 import pickle
 import time
-import torch
-from torch import nn
+
 from transformers import (
     MistralForCausalLM,
     MistralConfig,
@@ -20,7 +25,6 @@ from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
 from typing import Union
 from transformers import PreTrainedModel
-import os
 from dotenv import load_dotenv
 
 # Load the environment variables
@@ -32,9 +36,9 @@ template_model_name = "mistralai/Mistral-7B-v0.1"
 
 # Model settings - Model size: approx 420M parameters
 hidden_layers = 1  # Number of transformer layers
-hidden_size = 2048  # Size of the hidden states in the transformer layers
-intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
-attention_heads = 32  # Number of attention heads
+hidden_size = 1024  # Size of the hidden states in the transformer layers
+intermediate_size = 2048  # Size of the feed-forward network in the transformer layers
+attention_heads = 16  # Number of attention heads
 attn_dropout = 0.1  # Dropout rate for the attention probabilities
 context_length = 512  # Maximum sequence length
 
@@ -42,16 +46,16 @@ context_length = 512  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 2000  # Number of examples to use from the dataset
+dataset_size = 1000  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
 # Training settings
 seed = 42  # Random seed for reproducibility
-learning_rate = 3.1e-4  # Learning rate for the AdamW optimizer
+learning_rate = 1.2e-3  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 2  # Number of training epochs
-per_device_train_batch_size = 16  # Batch size per GPU/TPU core/CPU for training
+num_train_epochs = 1  # Number of training epochs
+per_device_train_batch_size = 24  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
@@ -63,9 +67,9 @@ optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 50  # Number of hyperparameter search trials
-dataset_size_range = [500, 1000]  # Range of dataset sizes to use for hyperparameter search
-lr_range = [1e-6, 1e-3]  # Range of learning rates to use for hyperparameter search
+n_trials = 64  # Number of hyperparameter search trials
+dataset_size_categorical = [1000, 1500, 2000]  # Categorical values for the number of examples to use from the dataset
+lr_range = [1e-3, 2e-3]  # Range of learning rates to use for hyperparameter search
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]  # Categorical values for the learning rate scheduler type
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
 train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparameter search
@@ -74,7 +78,7 @@ warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparame
 gradient_accumulation_steps_categorical = [1, 2, 4, 8, 16, 32, 64]  # Categorical values for the number of gradient accumulation steps
 attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
 weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
-max_grad_norm_range = [0.5, 1.0]  # Range of maximum gradient norms to use for hyperparameter search
+max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
 
 
 # Set seed for reproducibility
@@ -183,16 +187,17 @@ class Objective(TrainerCallback):
         attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
         # Hyperparameter search space
-        learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+        # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+        # dataset_size = trial.suggest_categorical("dataset_size", dataset_size_categorical)
         lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
         num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
-        # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
-        # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
         gradient_accumulation_steps = trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical)
         attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
         weight_decay = trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1])
-        max_grad_norm = trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1])
-        # dataset_size = trial.suggest_int("dataset_size", dataset_size_range[0], dataset_size_range[1])
+        # max_grad_norm = trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1])
+
+        # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
+        # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
 
         # Reset the best loss
         self.best_loss = np.inf
@@ -216,15 +221,16 @@ class Objective(TrainerCallback):
             warmup_ratio=warmup_ratio,
             learning_rate=learning_rate,
             lr_scheduler_type=lr_scheduler_type,
-            optim=optim,
+            # optim=optim,
             weight_decay=weight_decay,
             evaluation_strategy="epoch",
-            # eval_steps=0.5 / num_train_epochs,
+            # eval_steps=0.2 / num_train_epochs - 0.001,
+            save_strategy="no",
+            # save_steps=0.5 / num_train_epochs - 0.001,
             logging_dir=f"{results_dir}/logs/",
             logging_strategy="steps",
             logging_steps=0.1 / num_train_epochs,
             report_to="none",
-            save_strategy="epoch",
             # load_best_model_at_end=True,
             bf16=True,  # Enable mixed-precision training
             bf16_full_eval=True,  # Enable mixed-precision evaluation
@@ -263,13 +269,23 @@ class Objective(TrainerCallback):
         # Print the hyperparameters
         print("Hyperparameters:")
         print(f"  Model size: {model_size:.2f}{model_size_suffix} parameters")
+        print(f"  Hidden layers: {hidden_layers}")
+        print(f"  Hidden size: {hidden_size}")
+        print(f"  Intermediate size: {intermediate_size}")
+        print(f"  Attention heads: {attention_heads}")
+        print(f"  Attention dropout: {attn_dropout}")
         print(f"  Learning rate: {learning_rate}")
         print(f"  Learning rate scheduler type: {lr_scheduler_type}")
         print(f"  Epochs: {num_train_epochs}")
         print(f"  Warmup ratio: {warmup_ratio}")
-        print(f"  Attention dropout: {attn_dropout}")
-        print(f"  Attention heads: {attention_heads}")
+        print(f"  Weight decay: {weight_decay}")
+        print(f"  Max gradient norm: {max_grad_norm}")
         print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
+        print(f"  Per device train batch size: {per_device_train_batch_size}")
+        device_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
+        print(f"  Device count: {device_count}")
+        print(f"  Effective batch size: {per_device_train_batch_size * gradient_accumulation_steps * device_count}")
+        print(f"  Dataset size: {dataset_size}")
         print(f"  Training set size: {dataset_train_size}")
         print(f"  Evaluation set size: {dataset_eval_size}")
 
@@ -299,22 +315,27 @@ class Objective(TrainerCallback):
                     "dataset_name": dataset_name,
                     "dataset_config": dataset_config,
                     "dataset_path": dataset_path,
-                    "dataset_size_range": dataset_size_range,
+                    "dataset_size": dataset_size,
                     "dataset_split": dataset_split,
                     "stride": stride,
                     # Training settings
                     "seed": seed,
                     "lr_range": lr_range,
-                    "lr_scheduler_types": lr_scheduler_types,
-                    "optim": optim,
+                    "lr_scheduler_type": lr_scheduler_type,
+                    # "optim": optim,
                 },
                 f,
             )
 
         # Train the model
-        trainer.train()
+        try:
+            trainer.train()
+        except KeyboardInterrupt:
+            print("\n\nTraining interrupted by user")
+            return self.best_loss
 
         # Save the model
+        print(f"Saving the model to {results_dir}/model...")
         trainer.save_model(f"{results_dir}/model")
 
         # Return the best loss
@@ -390,7 +411,11 @@ def run_optuna_study():
 
     )
     objective = Objective(dataset, study_name, study_dir)
-    study.optimize(objective, n_trials=n_trials, gc_after_trial=True)
+
+    try:
+        study.optimize(objective, n_trials=n_trials, gc_after_trial=True)
+    except KeyboardInterrupt:
+        print("\n\nOptuna study interrupted by user")
 
     print("Study statistics: ")
     print("  Number of finished trials: ", len(study.trials))
@@ -403,7 +428,9 @@ def run_optuna_study():
         print(f"      {key}: {value}")
 
     # Save the study
-    with open(f"{study_dir}/optuna_study.pkl", "wb") as f:
+    study_file = f"{study_dir}/optuna_study.pkl"
+    print(f"Saving the study to {study_file}...")
+    with open(study_file, "wb") as f:
         pickle.dump(study, f)
 
 
