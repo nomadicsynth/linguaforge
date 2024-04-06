@@ -2,7 +2,6 @@
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
-import bitsandbytes as bnb
 from datasets import load_dataset, DatasetDict
 from dotenv import load_dotenv
 import json
@@ -48,7 +47,7 @@ warnings.filterwarnings(
 warnings.filterwarnings(
     'ignore',
     'Token indices sequence length is longer than the '
-    'specified maximum sequence length for this model',
+    'specified maximum sequence length for this model.+',
     append=True
 )
 
@@ -71,7 +70,7 @@ context_length = 512  # Maximum sequence length
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
 dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 10000  # Number of examples to use from the dataset
+dataset_size = 500  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
 stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
@@ -79,8 +78,8 @@ stride = 50  # Stride for splitting the input into multiple sequences. Doesn't w
 seed = 42  # Random seed for reproducibility
 dtype = "float16"  # Data type to use for the model
 learning_rate = 1.2e-3  # Learning rate for the AdamW optimizer
-lr_scheduler_type = "polynomial"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 1  # Number of training epochs
+lr_scheduler_type = "cosine"  # Use a cosine annealing learning rate scheduler
+num_train_epochs = 2  # Number of training epochs
 per_device_train_batch_size = 6  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.06388269955610547  # Weight decay for the AdamW optimizer
@@ -101,18 +100,18 @@ optim = "adamw_bnb_8bit"
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 8  # Number of hyperparameter search trials
+n_trials = 16  # Number of hyperparameter search trials
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
-dataset_size_categorical = [1000, 1500, 2000]  # Categorical values for the number of examples to use from the dataset
-lr_range = [1e-3, 2e-3]  # Range of learning rates to use for hyperparameter search
+dataset_size_categorical = [500, 1000]  # Categorical values for the number of examples to use from the dataset
+lr_range = [1e-5, 1e-3]  # Range of learning rates to use for hyperparameter search
 # Categorical values for the learning rate scheduler type
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
 train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparameter search
-per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
 # Categorical values for the number of gradient accumulation steps
 gradient_accumulation_steps_categorical = [1, 2, 4, 8]
+per_device_train_batch_size_range = [1, 6]  # Range of batch sizes to use for hyperparameter search
 attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
 weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
 max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
@@ -135,7 +134,8 @@ config_1B.hidden_size = hidden_size
 config_1B.intermediate_size = intermediate_size
 config_1B.num_hidden_layers = hidden_layers
 config_1B.num_attention_heads = attention_heads
-config_1B.max_position_embeddings = context_length
+config_1B.num_key_value_heads = 1  # Enables Multi-Query Attention (MQA)
+config_1B.max_position_embeddings = 4096 * 32
 config_1B.sliding_window = context_length,
 config_1B.pad_token_id = config_1B.eos_token_id
 config_1B.torch_dtype = dtype
@@ -174,22 +174,24 @@ class Objective(TrainerCallback):
 
     def __call__(self, trial: optuna.Trial) -> float:
         try:
+            print(f"\n\nTrial {trial.number + 1}/{n_trials}")
+
             # Model settings search space
             dtype = trial.suggest_categorical("dtype", dtype_categorical)
             # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
             # Hyperparameter search space
-            # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
-            # dataset_size = trial.suggest_categorical("dataset_size", dataset_size_categorical)
+            learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
             # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
             # num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
-            gradient_accumulation_steps = trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical)
+            # gradient_accumulation_steps = trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical)
             # attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
             # weight_decay = trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1])
             # max_grad_norm = trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1])
 
             # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
             # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
+            dataset_size = trial.suggest_categorical("dataset_size", dataset_size_categorical)
 
             # Reset the best loss
             self.best_loss = np.inf
@@ -213,12 +215,12 @@ class Objective(TrainerCallback):
                 optim=optim,
                 weight_decay=weight_decay,
                 evaluation_strategy="epoch",
-                # eval_steps=0.2 / num_train_epochs - 0.001,
+                eval_steps=0.1 / num_train_epochs - 0.001,
                 save_strategy="no",
                 # save_steps=0.5 / num_train_epochs - 0.001,
                 logging_dir=f"{results_dir}/logs/",
                 logging_strategy="steps",
-                logging_steps=0.1 / num_train_epochs,
+                logging_steps=min(0.1 / num_train_epochs, 100),
                 report_to="none",
                 # load_best_model_at_end=True,
                 seed=seed,
@@ -263,31 +265,32 @@ class Objective(TrainerCallback):
             # Print the hyperparameters
             print("Hyperparameters:")
             print(f"  Model size: {model_size:.2f}{model_size_suffix} parameters")
+            print(f"  Data type: {dtype}")
             print(f"  Hidden layers: {hidden_layers}")
             print(f"  Hidden size: {hidden_size}")
             print(f"  Intermediate size: {intermediate_size}")
             print(f"  Attention heads: {attention_heads}")
-            print(f"  Attention dropout: {attn_dropout}")
+            # print(f"  Attention dropout: {attn_dropout}")
             print(f"  Learning rate: {learning_rate}")
             print(f"  Learning rate scheduler type: {lr_scheduler_type}")
             print(f"  Epochs: {num_train_epochs}")
-            print(f"  Warmup ratio: {warmup_ratio}")
-            print(f"  Weight decay: {weight_decay}")
-            print(f"  Max gradient norm: {max_grad_norm}")
-            print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
-            print(f"  Per device train batch size: {per_device_train_batch_size}")
+            # print(f"  Warmup ratio: {warmup_ratio}")
+            # print(f"  Weight decay: {weight_decay}")
+            # print(f"  Max gradient norm: {max_grad_norm}")
             device_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
             print(f"  Device count: {device_count}")
+            print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
+            print(f"  Per device train batch size: {per_device_train_batch_size}")
             print(f"  Effective batch size: {per_device_train_batch_size * gradient_accumulation_steps * device_count}")
-            print(f"  Dataset size: {dataset_size}")
-            print(f"  Training set size: {dataset_train_size}")
-            print(f"  Evaluation set size: {dataset_eval_size}")
+            # print(f"  Dataset size: {dataset_size} (Train: {dataset_train_size} / Eval: {dataset_eval_size})")
+            # print(f"  Dataset split: {dataset_split}")
 
             # Save all the details to a JSON file in the results directory
             with open(f"{results_dir}/details.json", "w") as f:
                 json.dump(
                     {
                         "model_size": f"{model_size:.2f}{model_size_suffix}",
+                        "dtype": dtype,
                         "learning_rate": learning_rate,
                         "lr_scheduler_type": lr_scheduler_type,
                         "per_device_train_batch_size": per_device_train_batch_size,
@@ -295,6 +298,10 @@ class Objective(TrainerCallback):
                         "warmup_ratio": warmup_ratio,
                         "attention_dropout": attn_dropout,
                         "gradient_accumulation_steps": gradient_accumulation_steps,
+                        "effective_batch_size": per_device_train_batch_size * gradient_accumulation_steps * device_count,
+                        "device_count": device_count,
+                        "max_grad_norm": max_grad_norm,
+                        "weight_decay": weight_decay,
                         "dataset_train_size": dataset_train_size,
                         "dataset_eval_size": dataset_eval_size,
                         # Model settings
@@ -316,7 +323,8 @@ class Objective(TrainerCallback):
                         "seed": seed,
                         "lr_range": lr_range,
                         "lr_scheduler_type": lr_scheduler_type,
-                        # "optim": optim,
+                        "optim": optim,
+                        "trial_number": trial.number,
                     },
                     f,
                 )
@@ -335,6 +343,7 @@ class Objective(TrainerCallback):
         return self.best_loss
 
     def model_init(self) -> PreTrainedModel:
+        print("Initialising the model...")
         self.model = MistralForCausalLM(config_1B).to(device)
 
         if self.training_args.gradient_checkpointing:
@@ -344,6 +353,7 @@ class Objective(TrainerCallback):
 
     def prepare_dataset(self, dataset_size: int, dataset_split: float):
         if self.dataset_train is None or self.dataset_eval is None:
+            print("Preparing the dataset...")
             prepared_dataset = None
             # Select the first dataset_size examples from the training set
             if dataset_size > 0:
@@ -363,16 +373,18 @@ class Objective(TrainerCallback):
             # Set the training and evaluation datasets
             self.dataset_train = prepared_dataset["train"]
             self.dataset_eval = prepared_dataset["test"]
+        else:
+            print("Dataset already prepared. Skipping...")
 
     def on_evaluate(self, args, state, control, **kwargs):
         eval_loss = kwargs["metrics"]["eval_loss"]
         if eval_loss < self.best_loss:
             self.best_loss = eval_loss
 
-        # Calculate the perplexity
-        perplexity = math.exp(eval_loss)
-        if perplexity < self.best_perplexity:
-            self.best_perplexity = perplexity
+        # # Calculate the perplexity
+        # perplexity = math.exp(eval_loss)
+        # if perplexity < self.best_perplexity:
+        #     self.best_perplexity = perplexity
 
 
 # Optuna study
