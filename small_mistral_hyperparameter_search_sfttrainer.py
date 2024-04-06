@@ -356,29 +356,29 @@ class Objective(TrainerCallback):
         return self.model
 
     def prepare_dataset(self, dataset_size: int, dataset_split: float):
-        if self.dataset_train is None or self.dataset_eval is None:
-            print("Preparing the dataset...")
-            prepared_dataset = None
-            # Select the first dataset_size examples from the training set
-            if dataset_size > 0:
-                print("Selecting the first", dataset_size, "examples from the dataset...")
-                prepared_dataset = self.dataset["train"].select(range(dataset_size))
-            else:
-                dataset_size = len(self.dataset["train"])
-                print("Using the entire dataset of size", dataset_size)
-                prepared_dataset = self.dataset["train"]
-
-            # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
-            print("Splitting the dataset into training and evaluation sets...")
-            print("Training set size:", round(dataset_size * dataset_split))
-            print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-            prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
-
-            # Set the training and evaluation datasets
-            self.dataset_train = prepared_dataset["train"]
-            self.dataset_eval = prepared_dataset["test"]
+        # if self.dataset_train is None or self.dataset_eval is None:
+        print("Preparing the dataset...")
+        prepared_dataset = None
+        # Select the first dataset_size examples from the training set
+        if dataset_size > 0:
+            print("Selecting the first", dataset_size, "examples from the dataset...")
+            prepared_dataset = self.dataset["train"].select(range(dataset_size))
         else:
-            print("Dataset already prepared. Skipping...")
+            dataset_size = len(self.dataset["train"])
+            print("Using the entire dataset of size", dataset_size)
+            prepared_dataset = self.dataset["train"]
+
+        # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
+        print("Splitting the dataset into training and evaluation sets...")
+        print("Training set size:", round(dataset_size * dataset_split))
+        print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
+        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
+
+        # Set the training and evaluation datasets
+        self.dataset_train = prepared_dataset["train"]
+        self.dataset_eval = prepared_dataset["test"]
+        # else:
+        #     print("Dataset already prepared. Skipping...")
 
     def on_evaluate(self, args, state, control, **kwargs):
         eval_loss = kwargs["metrics"]["eval_loss"]
