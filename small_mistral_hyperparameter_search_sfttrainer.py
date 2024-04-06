@@ -76,7 +76,7 @@ stride = 50  # Stride for splitting the input into multiple sequences. Doesn't w
 
 # Training settings
 seed = 42  # Random seed for reproducibility
-dtype = "float16"  # Data type to use for the model
+dtype = "bfloat16"  # Data type to use for the model
 learning_rate = 1.2e-3  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "cosine"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 2  # Number of training epochs
@@ -177,7 +177,7 @@ class Objective(TrainerCallback):
             print(f"\n\nTrial {trial.number + 1}/{n_trials}")
 
             # Model settings search space
-            dtype = trial.suggest_categorical("dtype", dtype_categorical)
+            # dtype = trial.suggest_categorical("dtype", dtype_categorical)
             # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
             # Hyperparameter search space
@@ -214,8 +214,8 @@ class Objective(TrainerCallback):
                 lr_scheduler_type=lr_scheduler_type,
                 optim=optim,
                 weight_decay=weight_decay,
-                evaluation_strategy="epoch",
-                eval_steps=0.1 / num_train_epochs - 0.001,
+                evaluation_strategy="steps",
+                eval_steps=0.5 / num_train_epochs - 0.001,
                 save_strategy="no",
                 # save_steps=0.5 / num_train_epochs - 0.001,
                 logging_dir=f"{results_dir}/logs/",
@@ -236,9 +236,13 @@ class Objective(TrainerCallback):
             # Prepare the dataset
             self.prepare_dataset(dataset_size, dataset_split)
 
-            # Set the dropout rate and attention heads
+            # Set the dropout rate for the attention probabilities
             config_1B.attention_dropout = attn_dropout
+            # Set the number of attention heads
             config_1B.num_attention_heads = attention_heads
+            # Set the data type for the model
+            config_1B.torch_dtype = dtype
+
 
             # Initialize the trainer
             trainer = SFTTrainer(
@@ -282,7 +286,7 @@ class Objective(TrainerCallback):
             print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
             print(f"  Per device train batch size: {per_device_train_batch_size}")
             print(f"  Effective batch size: {per_device_train_batch_size * gradient_accumulation_steps * device_count}")
-            # print(f"  Dataset size: {dataset_size} (Train: {dataset_train_size} / Eval: {dataset_eval_size})")
+            print(f"  Dataset size: {dataset_size} (Train: {dataset_train_size} / Eval: {dataset_eval_size})")
             # print(f"  Dataset split: {dataset_split}")
 
             # Save all the details to a JSON file in the results directory
