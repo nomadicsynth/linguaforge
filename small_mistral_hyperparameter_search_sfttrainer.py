@@ -1,11 +1,14 @@
+from dotenv import load_dotenv
+
 # Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
+
 import torch
 from torch import nn
 
-from datasets import load_dataset, DatasetDict
 import bitsandbytes as bnb
+from datasets import load_dataset, DatasetDict
 import json
 import math
 import numpy as np
@@ -15,17 +18,29 @@ import pickle
 import time
 
 from transformers import (
-    MistralForCausalLM,
-    MistralConfig,
     AutoTokenizer,
+    MistralConfig,
+    MistralForCausalLM,
+    PreTrainedModel,
+    TrainerCallback,
     TrainingArguments,
-    TrainerCallback
 )
 from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
 from typing import Union
-from transformers import PreTrainedModel
-from dotenv import load_dotenv
+import warnings
+
+# Ignore the warning about gathering scalars
+warnings.filterwarnings('ignore', 'Was asked to gather along dimension 0, but all '
+                          'input tensors were scalars; will instead unsqueeze '
+                          'and return a vector.', append=True)
+
+# Ignore the FutureWarning about passing arguments to Accelerator
+warnings.filterwarnings('ignore', category=FutureWarning, append=True)
+
+# Ignore the warning that starts with "Token indices sequence length is longer than the specified maximum sequence length for this model"
+warnings.filterwarnings('ignore', 'Token indices sequence length is longer than the specified maximum sequence length for this model', append=True)
+
 
 # Load the environment variables
 load_dotenv()
@@ -221,7 +236,7 @@ class Objective(TrainerCallback):
             warmup_ratio=warmup_ratio,
             learning_rate=learning_rate,
             lr_scheduler_type=lr_scheduler_type,
-            # optim=optim,
+            optim="adamw_bnb_8bit",  # ['adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla', 'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision', 'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit', 'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit', 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw', 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise', 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise']
             weight_decay=weight_decay,
             evaluation_strategy="epoch",
             # eval_steps=0.2 / num_train_epochs - 0.001,
