@@ -1,6 +1,8 @@
 accelerate
 bitsandbytes
 datasets
+deepspeed
+dotenv
 flash-attn
 ninja
 optuna
