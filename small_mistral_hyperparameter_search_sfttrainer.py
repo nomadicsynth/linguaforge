@@ -103,7 +103,7 @@ study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{stu
 n_trials = 16  # Number of hyperparameter search trials
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 dataset_size_categorical = [500, 1000]  # Categorical values for the number of examples to use from the dataset
-lr_range = [1e-5, 1e-3]  # Range of learning rates to use for hyperparameter search
+lr_range = [1e-5, 2e-4]  # Range of learning rates to use for hyperparameter search
 # Categorical values for the learning rate scheduler type
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
