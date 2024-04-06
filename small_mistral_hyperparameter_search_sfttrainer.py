@@ -60,9 +60,9 @@ hf_token = os.getenv("HF_TOKEN")
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
 # Model settings - Model size: approx 420M parameters
-hidden_layers = 2  # Number of transformer layers
+hidden_layers = 18  # Number of transformer layers
 hidden_size = 1024  # Size of the hidden states in the transformer layers
-intermediate_size = 2048  # Size of the feed-forward network in the transformer layers
+intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.18486156277928165  # Dropout rate for the attention probabilities
 context_length = 512  # Maximum sequence length
@@ -77,10 +77,11 @@ stride = 50  # Stride for splitting the input into multiple sequences. Doesn't w
 
 # Training settings
 seed = 42  # Random seed for reproducibility
+dtype = "float16"  # Data type to use for the model
 learning_rate = 1.2e-3  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "polynomial"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 5  # Number of training epochs
-per_device_train_batch_size = 12  # Batch size per GPU/TPU core/CPU for training
+num_train_epochs = 1  # Number of training epochs
+per_device_train_batch_size = 6  # Batch size per GPU/TPU core/CPU for training
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.06388269955610547  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
@@ -100,7 +101,8 @@ optim = "adamw_bnb_8bit"
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 64  # Number of hyperparameter search trials
+n_trials = 8  # Number of hyperparameter search trials
+dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 dataset_size_categorical = [1000, 1500, 2000]  # Categorical values for the number of examples to use from the dataset
 lr_range = [1e-3, 2e-3]  # Range of learning rates to use for hyperparameter search
 # Categorical values for the learning rate scheduler type
@@ -110,7 +112,7 @@ train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparamete
 per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
 # Categorical values for the number of gradient accumulation steps
-gradient_accumulation_steps_categorical = [1, 2]
+gradient_accumulation_steps_categorical = [1, 2, 4, 8]
 attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
 weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
 max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
@@ -136,7 +138,7 @@ config_1B.num_attention_heads = attention_heads
 config_1B.max_position_embeddings = context_length
 config_1B.sliding_window = context_length,
 config_1B.pad_token_id = config_1B.eos_token_id
-config_1B.torch_dtype = "bfloat16"
+config_1B.torch_dtype = dtype
 config_1B.attn_implementation = "flash_attention_2"
 config_1B.attn_dropout = attn_dropout
 
@@ -173,10 +175,11 @@ class Objective(TrainerCallback):
     def __call__(self, trial: optuna.Trial) -> float:
         try:
             # Model settings search space
+            dtype = trial.suggest_categorical("dtype", dtype_categorical)
             # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
 
             # Hyperparameter search space
-            learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
+            # learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
             # dataset_size = trial.suggest_categorical("dataset_size", dataset_size_categorical)
             # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
             # num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
@@ -190,9 +193,6 @@ class Objective(TrainerCallback):
 
             # Reset the best loss
             self.best_loss = np.inf
-
-            # Reset the perplexity
-            self.best_perplexity = np.inf
 
             results_dir = f"{self.study_dir}/optuna_trial_{trial.number}"
             if not os.path.exists(results_dir):
@@ -221,10 +221,15 @@ class Objective(TrainerCallback):
                 logging_steps=0.1 / num_train_epochs,
                 report_to="none",
                 # load_best_model_at_end=True,
-                bf16=True,  # Enable mixed-precision training
-                bf16_full_eval=True,  # Enable mixed-precision evaluation
                 seed=seed,
             )
+
+            if dtype == "bfloat16":
+                self.training_args.bf16 = True
+                self.training_args.bf16_full_eval = True
+            else:
+                self.training_args.fp16 = True
+                self.training_args.fp16_full_eval = True
 
             # Prepare the dataset
             self.prepare_dataset(dataset_size, dataset_split)
