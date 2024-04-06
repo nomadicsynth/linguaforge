@@ -1,22 +1,18 @@
-from dotenv import load_dotenv
-
 # Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
-import torch
-from torch import nn
-
 import bitsandbytes as bnb
 from datasets import load_dataset, DatasetDict
+from dotenv import load_dotenv
 import json
 import math
 import numpy as np
 import optuna
-import os
 import pickle
 import time
-
+import torch
+from torch import nn
 from transformers import (
     AutoTokenizer,
     MistralConfig,
@@ -56,7 +52,6 @@ warnings.filterwarnings(
     append=True
 )
 
-
 # Load the environment variables
 load_dotenv()
 hf_token = os.getenv("HF_TOKEN")
@@ -91,7 +86,15 @@ weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
 gradient_checkpointing = False  # Causes a segfault when enabled
-optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
+# Choose the optimizer to use
+# 'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
+# 'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision',
+# 'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit',
+# 'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit',
+# 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
+# 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
+# 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
+optim = "adamw_bnb_8bit"
 
 # Optuna study settings
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -152,52 +155,6 @@ print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
 
 
-class CustomSFTTrainer(SFTTrainer):
-    def create_optimizer(self):
-        decay_parameters = get_parameter_names(self.model, [nn.LayerNorm])
-        decay_parameters = [name for name in decay_parameters if "bias" not in name]
-        optimizer_grouped_parameters = [
-            {
-                "params": [p for n, p in self.model.named_parameters() if n in decay_parameters],
-                "weight_decay": self.args.weight_decay,
-            },
-            {
-                "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters],
-                "weight_decay": 0.0,
-            },
-        ]
-
-        optimizer_kwargs = {
-            "params": optimizer_grouped_parameters,
-            "betas": (self.args.adam_beta1, self.args.adam_beta2),
-            "eps": self.args.adam_epsilon,
-            "lr": self.args.learning_rate
-        }
-
-        self.optimizer = bnb.optim.Adam8bit(**optimizer_kwargs)
-
-        return self.optimizer
-
-
-# Custom callback for Optuna pruning
-class OptunaPruningCallback(TrainerCallback):
-    def __init__(self, trial: optuna.Trial, monitor: str):
-        self.trial = trial
-        self.monitor = monitor
-
-    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
-        # Retrieve the metric to monitor
-        metric_value = metrics.get(self.monitor)
-        if metric_value is None:
-            raise ValueError(f"The monitored metric '{self.monitor}' was not found.")
-
-        # Report the current metric value to Optuna and check for pruning
-        self.trial.report(metric_value, step=state.epoch)
-        if self.trial.should_prune() or math.isnan(metric_value) or math.isinf(metric_value):
-            message = f"Trial was pruned at epoch {state.epoch}."
-            raise optuna.exceptions.TrialPruned(message)
-
-
 # Objective function for Optuna
 class Objective(TrainerCallback):
     def __init__(self, dataset: Union[dict, DatasetDict], study_name: str, study_dir: str):
@@ -253,7 +210,7 @@ class Objective(TrainerCallback):
             warmup_ratio=warmup_ratio,
             learning_rate=learning_rate,
             lr_scheduler_type=lr_scheduler_type,
-            optim="adamw_bnb_8bit",  # ['adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla', 'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision', 'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit', 'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit', 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw', 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise', 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise']
+            optim=optim,
             weight_decay=weight_decay,
             evaluation_strategy="epoch",
             # eval_steps=0.2 / num_train_epochs - 0.001,
@@ -277,7 +234,7 @@ class Objective(TrainerCallback):
         config_1B.num_attention_heads = attention_heads
 
         # Initialize the trainer
-        trainer = CustomSFTTrainer(
+        trainer = SFTTrainer(
             model_init=self.model_init,
             args=self.training_args,
             train_dataset=self.dataset_train,
