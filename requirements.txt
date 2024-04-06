@@ -5,6 +5,8 @@ flash-attn
 ninja
 optuna
 packaging
+plotly
+scikit-learn
 tensorboard
 torch
 transformers
