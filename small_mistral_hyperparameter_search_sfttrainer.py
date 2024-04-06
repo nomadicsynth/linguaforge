@@ -31,15 +31,30 @@ from typing import Union
 import warnings
 
 # Ignore the warning about gathering scalars
-warnings.filterwarnings('ignore', 'Was asked to gather along dimension 0, but all '
-                          'input tensors were scalars; will instead unsqueeze '
-                          'and return a vector.', append=True)
+warnings.filterwarnings(
+    'ignore',
+    'Was asked to gather along dimension 0, but all '
+    'input tensors were scalars; will instead unsqueeze '
+    'and return a vector.',
+    append=True
+)
 
 # Ignore the FutureWarning about passing arguments to Accelerator
-warnings.filterwarnings('ignore', category=FutureWarning, append=True)
+warnings.filterwarnings(
+    'ignore',
+    "Passing the following arguments to `Accelerator` "
+    "is deprecated and will be removed in version 1.0 of Accelerate:",
+    category=FutureWarning,
+    append=True
+)
 
 # Ignore the warning that starts with "Token indices sequence length is longer than the specified maximum sequence length for this model"
-warnings.filterwarnings('ignore', 'Token indices sequence length is longer than the specified maximum sequence length for this model', append=True)
+warnings.filterwarnings(
+    'ignore',
+    'Token indices sequence length is longer than the '
+    'specified maximum sequence length for this model',
+    append=True
+)
 
 
 # Load the environment variables
@@ -85,12 +100,14 @@ study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{stu
 n_trials = 64  # Number of hyperparameter search trials
 dataset_size_categorical = [1000, 1500, 2000]  # Categorical values for the number of examples to use from the dataset
 lr_range = [1e-3, 2e-3]  # Range of learning rates to use for hyperparameter search
-lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]  # Categorical values for the learning rate scheduler type
+# Categorical values for the learning rate scheduler type
+lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
 train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparameter search
 per_device_train_batch_size_range = [1, 3]  # Range of batch sizes to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
-gradient_accumulation_steps_categorical = [1, 2, 4, 8, 16, 32, 64]  # Categorical values for the number of gradient accumulation steps
+# Categorical values for the number of gradient accumulation steps
+gradient_accumulation_steps_categorical = [1, 2, 4, 8, 16, 32, 64]
 attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
 weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
 max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
