@@ -1,5 +1,8 @@
+# Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
+
 from datasets import load_dataset, DatasetDict
-import bitsandbytes as bnb
 import json
 import os
 import time
@@ -12,6 +15,34 @@ from transformers import (
 )
 from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
+import warnings
+
+# Ignore the warning about gathering scalars
+warnings.filterwarnings(
+    'ignore',
+    'Was asked to gather along dimension 0, but all '
+    'input tensors were scalars; will instead unsqueeze '
+    'and return a vector.',
+    append=True
+)
+
+# Ignore the FutureWarning about passing arguments to Accelerator
+warnings.filterwarnings(
+    'ignore',
+    "Passing the following arguments to `Accelerator` "
+    "is deprecated and will be removed in version 1.0 of Accelerate:",
+    category=FutureWarning,
+    append=True
+)
+
+# Ignore the warning that starts with "Token indices sequence length is longer than the specified maximum sequence length for this model"
+warnings.filterwarnings(
+    'ignore',
+    'Token indices sequence length is longer than the '
+    'specified maximum sequence length for this model.+',
+    append=True
+)
+
 
 # The model to finetune
 model_path = "/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-20240315-211134/checkpoint-56144"
@@ -36,7 +67,15 @@ weight_decay = 0.01  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
 gradient_checkpointing = False  # Causes a segfault when enabled
-optim = "adamw_torch"  # Use PyTorch's AdamW optimizer
+# Choose the optimizer to use
+# 'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
+# 'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision',
+# 'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit',
+# 'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit',
+# 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
+# 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
+# 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
+optim = "adamw_bnb_8bit"
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -70,33 +109,6 @@ tokenizer.chat_template = "{% if not add_generation_prompt is defined %}{% set a
 print(f"Loading the dataset from {dataset_path} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
 dataset = dataset.shuffle()
-
-
-class CustomSFTTrainer(SFTTrainer):
-    def create_optimizer(self):
-        decay_parameters = get_parameter_names(self.model, [nn.LayerNorm])
-        decay_parameters = [name for name in decay_parameters if "bias" not in name]
-        optimizer_grouped_parameters = [
-            {
-                "params": [p for n, p in self.model.named_parameters() if n in decay_parameters],
-                "weight_decay": self.args.weight_decay,
-            },
-            {
-                "params": [p for n, p in self.model.named_parameters() if n not in decay_parameters],
-                "weight_decay": 0.0,
-            },
-        ]
-
-        optimizer_kwargs = {
-            "params": optimizer_grouped_parameters,
-            "betas": (self.args.adam_beta1, self.args.adam_beta2),
-            "eps": self.args.adam_epsilon,
-            "lr": self.args.learning_rate
-        }
-
-        self.optimizer = bnb.optim.Adam8bit(**optimizer_kwargs)
-
-        return self.optimizer
 
 
 def run_training(
@@ -136,7 +148,7 @@ def run_training(
         logging_strategy="steps",
         logging_steps=100,
         report_to="tensorboard",
-        optim="adamw_torch",
+        optim=optim,
         save_strategy="steps",
         save_steps=0.25 / num_train_epochs,
         bf16=True,  # Enable mixed-precision training
@@ -151,7 +163,7 @@ def run_training(
     model = model_init(model_path)
 
     # Initialize the trainer
-    trainer = CustomSFTTrainer(
+    trainer = SFTTrainer(
         model=model,
         args=training_args,
         train_dataset=dataset_train,
