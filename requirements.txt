@@ -2,7 +2,7 @@ accelerate
 bitsandbytes
 datasets
 deepspeed
-dotenv
+python-dotenv
 flash-attn
 ninja
 optuna
