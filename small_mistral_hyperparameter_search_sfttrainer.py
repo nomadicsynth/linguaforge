@@ -5,13 +5,12 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 from datasets import load_dataset, DatasetDict
 from dotenv import load_dotenv
 import json
-import math
 import numpy as np
 import optuna
+from OptunaPruningCallback import OptunaPruningCallback
 import pickle
 import time
 import torch
-from torch import nn
 from transformers import (
     AutoTokenizer,
     MistralConfig,
@@ -102,8 +101,8 @@ study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
 n_trials = 16  # Number of hyperparameter search trials
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
-dataset_size_categorical = [500, 1000]  # Categorical values for the number of examples to use from the dataset
-lr_range = [1e-5, 2e-4]  # Range of learning rates to use for hyperparameter search
+dataset_size_categorical = [1000, 2000, 3000]  # Categorical values for the number of examples to use from the dataset
+lr_range = [5e-6, 5e-5]  # Range of learning rates to use for hyperparameter search
 # Categorical values for the learning rate scheduler type
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
@@ -115,7 +114,7 @@ per_device_train_batch_size_range = [1, 6]  # Range of batch sizes to use for hy
 attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
 weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
 max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
-
+hidden_layers_range = [1, 18]  # Range of hidden layers to use for hyperparameter search
 
 # Set seed for reproducibility
 set_seed(seed)
@@ -179,6 +178,7 @@ class Objective(TrainerCallback):
             # Model settings search space
             # dtype = trial.suggest_categorical("dtype", dtype_categorical)
             # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
+            hidden_layers = trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1])
 
             # Hyperparameter search space
             learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
@@ -254,8 +254,7 @@ class Objective(TrainerCallback):
                 packing=True,
                 max_seq_length=context_length,
                 tokenizer=tokenizer,
-                callbacks=[self],
-                # callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
+                callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
             )
 
             # Print the model size with suffix 'G' or 'M'
