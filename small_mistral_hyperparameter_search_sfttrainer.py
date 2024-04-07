@@ -57,7 +57,7 @@ hf_token = os.getenv("HF_TOKEN")
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
-# Model settings - Model size: approx 420M parameters
+# Model settings
 hidden_layers = 18  # Number of transformer layers
 hidden_size = 1024  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
