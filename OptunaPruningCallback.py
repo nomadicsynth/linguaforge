@@ -30,9 +30,11 @@ class OptunaPruningCallback(TrainerCallback):
         grad_norm = logs.get('grad_norm')
         loss = logs.get('loss')
 
-        # Check if grad_norm or loss is NAN or INF
+        # Check if we are in eval and grad_norm or loss is not available
         if grad_norm is None or loss is None:
-            raise ValueError("The monitored metrics 'grad_norm' or 'loss' were not found.")
+            return
+
+        # Check if grad_norm or loss is NAN or INF
         if math.isnan(grad_norm) or math.isinf(grad_norm) or math.isnan(loss) or math.isinf(loss):
             message = f"Trial was pruned at step {state.global_step} due to NAN or INF in grad_norm or loss."
             raise optuna.exceptions.TrialPruned(message)
