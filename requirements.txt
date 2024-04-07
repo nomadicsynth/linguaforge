@@ -13,3 +13,4 @@ tensorboard
 torch
 transformers
 trl
+wheel
