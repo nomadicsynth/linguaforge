@@ -173,7 +173,7 @@ class Objective(TrainerCallback):
 
     def __call__(self, trial: optuna.Trial) -> float:
         try:
-            print(f"\n\nTrial {trial.number + 1}/{n_trials}")
+            print(f"\n\nTrial {trial.number}/{n_trials - 1}")
 
             # Model settings search space
             # dtype = trial.suggest_categorical("dtype", dtype_categorical)
