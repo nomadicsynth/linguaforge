@@ -1,8 +1,13 @@
-# Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 import os
+
+# Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
+# Set the DS_SKIP_CUDA_CHECK environment variable before importing deepspeed
+# os.environ["DS_SKIP_CUDA_CHECK"] = "1"
+
 from datasets import load_dataset, DatasetDict
+# import deepspeed
 from dotenv import load_dotenv
 import json
 import numpy as np
@@ -128,6 +133,7 @@ else:
 print(f"Using device: {device}")
 
 # Configuration for the model
+# with deepspeed.zero.Init():
 config_1B = MistralConfig().from_pretrained(template_model_name, token=hf_token)
 config_1B.hidden_size = hidden_size
 config_1B.intermediate_size = intermediate_size
@@ -138,6 +144,7 @@ config_1B.max_position_embeddings = 4096 * 32
 config_1B.sliding_window = context_length,
 config_1B.pad_token_id = config_1B.eos_token_id
 config_1B.torch_dtype = dtype
+config_1B.use_cache=False if gradient_checkpointing else True,
 config_1B.attn_implementation = "flash_attention_2"
 config_1B.attn_dropout = attn_dropout
 
@@ -154,7 +161,6 @@ tokenizer.stride = stride
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
-
 
 # Objective function for Optuna
 class Objective(TrainerCallback):
@@ -200,6 +206,60 @@ class Objective(TrainerCallback):
             if not os.path.exists(results_dir):
                 os.makedirs(results_dir)
 
+            # Prepare the dataset
+            self.prepare_dataset(dataset_size, dataset_split)
+
+            # Set the dropout rate for the attention probabilities
+            config_1B.attention_dropout = attn_dropout
+            # Set the number of attention heads
+            config_1B.num_attention_heads = attention_heads
+            # Set the data type for the model
+            config_1B.torch_dtype = dtype
+            # Set the number of hidden layers
+            config_1B.num_hidden_layers = hidden_layers
+
+            # Stage 1 DeepSpeed Zero optimisation settings
+            dszs1 = {
+                "stage": 1,
+            }
+
+            # Stage 2 DeepSpeed Zero optimisation settings
+            dszs2 = {
+                "stage": 2,
+                "round_robin_gradients": True,
+            }
+
+            # Stage 3 DeepSpeed Zero optimisation settings
+            dszs3 = {
+                "stage": 3,
+                # "offload_optimizer": {
+                #     "device": "cpu",
+                #     "pin_memory": True,
+                # },
+                "offload_param": {
+                    "device": "cpu",
+                    "pin_memory": True,
+                },
+                "overlap_comm": True,
+                "contiguous_gradients": True,
+                "reduce_bucket_size": "auto",
+                "stage3_prefetch_bucket_size": "auto",
+                "stage3_param_persistence_threshold": "auto",
+                "stage3_gather_16bit_weights_on_model_save": True,
+            }
+
+            # Create the deepspeed config
+            deepspeed_config = {
+                "train_micro_batch_size_per_gpu": "auto",
+                "train_batch_size": "auto",
+                "gradient_accumulation_steps": "auto",
+                "gradient_clipping": "auto",
+                "fp16": {"enabled": (dtype == "float16")},
+                "bf16": {"enabled": (dtype == "bfloat16")},
+                "zero_optimization": dszs2,
+                "zero_allow_untested_optimizer": True,
+            }
+
             # TrainingArguments setup
             self.training_args = TrainingArguments(
                 output_dir=results_dir,
@@ -224,25 +284,12 @@ class Objective(TrainerCallback):
                 report_to="none",
                 # load_best_model_at_end=True,
                 seed=seed,
+                bf16=(dtype == "bfloat16"),
+                bf16_full_eval=(dtype == "bfloat16"),
+                fp16=(dtype == "float16"),
+                fp16_full_eval=(dtype == "float16"),
+                # deepspeed=deepspeed_config,
             )
-
-            if dtype == "bfloat16":
-                self.training_args.bf16 = True
-                self.training_args.bf16_full_eval = True
-            else:
-                self.training_args.fp16 = True
-                self.training_args.fp16_full_eval = True
-
-            # Prepare the dataset
-            self.prepare_dataset(dataset_size, dataset_split)
-
-            # Set the dropout rate for the attention probabilities
-            config_1B.attention_dropout = attn_dropout
-            # Set the number of attention heads
-            config_1B.num_attention_heads = attention_heads
-            # Set the data type for the model
-            config_1B.torch_dtype = dtype
-
 
             # Initialize the trainer
             trainer = SFTTrainer(
@@ -347,6 +394,7 @@ class Objective(TrainerCallback):
 
     def model_init(self) -> PreTrainedModel:
         print("Initialising the model...")
+        # with deepspeed.zero.Init():
         self.model = MistralForCausalLM(config_1B).to(device)
 
         if self.training_args.gradient_checkpointing:
