@@ -236,6 +236,17 @@ training_args = TrainingArguments(
 # Prepare the dataset
 prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split)
 
+# Save the prepared dataset
+prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
+print("Prepared dataset saved to", f"{results_dir}/dataset/")
+
+# Save the dataset configuration
+with open(f"{results_dir}/dataset_config.json", "w") as f:
+    json.dump({"dataset_name": dataset_name, "dataset_config": dataset_config, "dataset_size": dataset_size, "dataset_split": dataset_split, "stride": stride}, f, indent=2)
+
+# Free up some memory
+del dataset
+
 # Initialize the trainer
 trainer = SFTTrainer(
     model_init=model_init,
