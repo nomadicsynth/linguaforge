@@ -314,7 +314,6 @@ class Objective(TrainerCallback):
 
             # Print the hyperparameters
             print("Hyperparameters:")
-            print(f"  Model size: {model_size:.2f}{model_size_suffix} parameters")
             print(f"  Data type: {dtype}")
             print(f"  Hidden layers: {hidden_layers}")
             print(f"  Hidden size: {hidden_size}")
@@ -339,7 +338,6 @@ class Objective(TrainerCallback):
             with open(f"{results_dir}/details.json", "w") as f:
                 json.dump(
                     {
-                        "model_size": f"{model_size:.2f}{model_size_suffix}",
                         "dtype": dtype,
                         "learning_rate": learning_rate,
                         "lr_scheduler_type": lr_scheduler_type,
@@ -399,6 +397,13 @@ class Objective(TrainerCallback):
 
         if self.training_args.gradient_checkpointing:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+        # Print the model size with suffix 'G' or 'M'
+        model_size = sum(p.numel() for p in self.model.parameters())
+        model_size = model_size / 1e9 if model_size > 1e9 else model_size / 1e6
+        model_size_suffix = "G" if model_size > 1e3 else "M"
+
+        print(f"Model size: {model_size:.2f}{model_size_suffix} parameters")
 
         return self.model
 
