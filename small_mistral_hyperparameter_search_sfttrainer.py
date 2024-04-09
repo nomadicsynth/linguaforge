@@ -141,15 +141,16 @@ config_1B.num_hidden_layers = hidden_layers
 config_1B.num_attention_heads = attention_heads
 config_1B.num_key_value_heads = 1  # Enables Multi-Query Attention (MQA)
 config_1B.max_position_embeddings = 4096 * 32
+config_1B.use_cache = False if gradient_checkpointing else True,
+config_1B.pad_token_id = config_1B.eos_token_id,
 config_1B.sliding_window = context_length,
 config_1B.attention_dropout = attn_dropout
 config_1B.torch_dtype = dtype
-config_1B.use_cache=False if gradient_checkpointing else True,
 config_1B.attn_implementation = "flash_attention_2"
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
-tokenizer = AutoTokenizer.from_pretrained(template_model_name, token=hf_token)
+tokenizer = AutoTokenizer.from_pretrained(template_model_name)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 tokenizer.padding_side = 'right'
 
