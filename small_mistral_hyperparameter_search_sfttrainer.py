@@ -8,7 +8,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
 from datasets import load_dataset, DatasetDict
 # import deepspeed
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 import json
 import numpy as np
 import optuna
@@ -56,8 +56,8 @@ warnings.filterwarnings(
 )
 
 # Load the environment variables
-load_dotenv()
-hf_token = os.getenv("HF_TOKEN")
+# load_dotenv()
+# hf_token = os.getenv("HF_TOKEN")
 
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
@@ -134,7 +134,7 @@ print(f"Using device: {device}")
 
 # Configuration for the model
 # with deepspeed.zero.Init():
-config_1B = MistralConfig().from_pretrained(template_model_name, token=hf_token)
+config_1B = MistralConfig().from_pretrained(template_model_name)
 config_1B.hidden_size = hidden_size
 config_1B.intermediate_size = intermediate_size
 config_1B.num_hidden_layers = hidden_layers
