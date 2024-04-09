@@ -133,20 +133,23 @@ else:
 print(f"Using device: {device}")
 
 # Configuration for the model
+template_model_config = MistralConfig.from_pretrained(template_model_name)
+
 # with deepspeed.zero.Init():
-config_1B = MistralConfig().from_pretrained(template_model_name)
-config_1B.hidden_size = hidden_size
-config_1B.intermediate_size = intermediate_size
-config_1B.num_hidden_layers = hidden_layers
-config_1B.num_attention_heads = attention_heads
-config_1B.num_key_value_heads = 1  # Enables Multi-Query Attention (MQA)
-config_1B.max_position_embeddings = 4096 * 32
-config_1B.use_cache = False if gradient_checkpointing else True
-config_1B.pad_token_id = config_1B.eos_token_id
-config_1B.sliding_window = context_length
-config_1B.attention_dropout = attn_dropout
-config_1B.torch_dtype = dtype
-config_1B.attn_implementation = "flash_attention_2"
+model_config = dict(
+    hidden_size = hidden_size,
+    intermediate_size = intermediate_size,
+    num_hidden_layers = hidden_layers,
+    num_attention_heads = attention_heads,
+    num_key_value_heads = 1,  # Enables Multi-Query Attention (MQA)
+    max_position_embeddings = 4096 * 32,
+    use_cache = False if gradient_checkpointing else True,
+    pad_token_id = template_model_config.pad_token_id,
+    sliding_window = context_length,
+    attention_dropout = attn_dropout,
+    torch_dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
+    attn_implementation = "flash_attention_2"
+)
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
@@ -210,13 +213,13 @@ class Objective(TrainerCallback):
             self.prepare_dataset(dataset_size, dataset_split)
 
             # Set the dropout rate for the attention probabilities
-            config_1B.attention_dropout = attn_dropout
+            model_config["attention_dropout"] = attn_dropout
             # Set the number of attention heads
-            config_1B.num_attention_heads = attention_heads
+            model_config["num_attention_heads"] = attention_heads
             # Set the data type for the model
-            config_1B.torch_dtype = dtype
+            model_config["torch_dtype"] = dtype
             # Set the number of hidden layers
-            config_1B.num_hidden_layers = hidden_layers
+            model_config["num_hidden_layers"] = hidden_layers
 
             # Stage 1 DeepSpeed Zero optimisation settings
             dszs1 = {
@@ -388,10 +391,21 @@ class Objective(TrainerCallback):
     def model_init(self) -> PreTrainedModel:
         print("Initialising the model...")
         # with deepspeed.zero.Init():
-        self.model = MistralForCausalLM(config_1B).to(device)
+        self.model_config = MistralConfig(**model_config)
+        self.model = MistralForCausalLM(self.model_config)
 
+        # Set the gradient checkpointing
         if self.training_args.gradient_checkpointing:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+        # If the dtype is float16 or bfloat16, convert the model to that dtype
+        if self.model_config.torch_dtype == "float16" or self.model_config.torch_dtype == torch.float16:
+            self.model = self.model.half()
+        elif self.model_config.torch_dtype == "bfloat16" or self.model_config.torch_dtype == torch.bfloat16:
+            self.model = self.model.to(torch.bfloat16)
+
+        # Move the model to the device
+        self.model = self.model.to(device)
 
         # Print the model size with suffix 'G' or 'M'
         model_size = sum(p.numel() for p in self.model.parameters())
