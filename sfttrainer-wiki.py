@@ -233,29 +233,6 @@ print(f"  Results directory: {results_dir}")
 print(f"  Optimizer: {optim}")
 print()
 
-# Save the training arguments
-training_args_path = f"{results_dir}/training_args.json"
-with open(training_args_path, "w") as f:
-    json.dump(training_args.__dict__, f, indent=4)
-print(f"Training arguments saved to {training_args_path}")
-
-# Save the model configuration
-model_config_path = f"{results_dir}/model_config.json"
-with open(model_config_path, "w") as f:
-    json.dump(model_config, f, indent=4)
-print(f"Model configuration saved to {model_config_path}")
-
-# Save the dataset configuration
-dataset_config_path = f"{results_dir}/dataset_config.json"
-with open(dataset_config_path, "w") as f:
-    json.dump(dataset, f, indent=4)
-print(f"Dataset configuration saved to {dataset_config_path}")
-
-# Save the dataset
-dataset_path = f"{results_dir}/dataset"
-prepared_dataset.save_to_disk(dataset_path)
-print(f"Dataset saved to {dataset_path}")
-
 # Train the model
 trainer.train()
 
@@ -263,11 +240,6 @@ trainer.train()
 model_path = f"{results_dir}/model"
 trainer.save_model(model_path)
 print(f"Model saved to {model_path}")
-
-# Save the tokenizer
-tokenizer_path = f"{results_dir}/tokenizer"
-tokenizer.save_pretrained(tokenizer_path)
-print(f"Tokenizer saved to {tokenizer_path}")
 
 # TODO: Evaluate the model
 # results = trainer.evaluate()
