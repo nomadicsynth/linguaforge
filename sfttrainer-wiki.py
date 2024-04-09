@@ -59,7 +59,7 @@ parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of t
 parser.add_argument("--per_device_train_batch_size", type=int, default=14, help="Batch size per GPU/TPU core/CPU for training")
 parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of steps to accumulate gradients for")
 parser.add_argument("--warmup_ratio", type=float, default=0.10, help="Ratio of the number of warmup steps to the total number of training steps")
-parser.add_argument("--warmup_steps", type=int, default=None, help="Number of warmup steps")
+parser.add_argument("--warmup_steps", type=int, default=0, help="Number of warmup steps")
 parser.add_argument("--weight_decay", type=float, default=0.0434, help="Weight decay for the AdamW optimizer")
 parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
 parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing")
