@@ -67,7 +67,7 @@ hidden_layers = 1  # Number of transformer layers
 hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
-attn_dropout = 0.18486156277928165  # Dropout rate for the attention probabilities
+attn_dropout = 0.0  # Dropout rate for the attention probabilities
 context_length = 1024  # Maximum sequence length
 
 # Dataset settings
