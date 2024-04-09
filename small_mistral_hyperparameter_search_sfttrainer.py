@@ -85,7 +85,7 @@ learning_rate = 5e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 2  # Number of training epochs
 per_device_train_batch_size = 14  # Batch size per GPU/TPU core/CPU for training
-gradient_accumulation_steps = 10  # Number of steps to accumulate gradients for
+gradient_accumulation_steps = 4  # Number of steps to accumulate gradients for
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.06388269955610547  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
@@ -114,8 +114,8 @@ attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the numb
 train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparameter search
 warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
 # Categorical values for the number of gradient accumulation steps
-gradient_accumulation_steps_categorical = [1, 2, 4, 8]
 per_device_train_batch_size_range = [1, 6]  # Range of batch sizes to use for hyperparameter search
+gradient_accumulation_steps_categorical = [1, 2, 4, 8]
 attn_dropout_range = [0.0, 0.2]  # Range of attention dropout rates to use for hyperparameter search
 weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
 max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
@@ -193,12 +193,12 @@ class Objective(TrainerCallback):
             learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
             # lr_scheduler_type = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
             # num_train_epochs = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
-            # gradient_accumulation_steps = trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical)
+            # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
+            gradient_accumulation_steps = trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical)
             # attn_dropout = trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1])
             # weight_decay = trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1])
             # max_grad_norm = trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1])
 
-            # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
             # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
             # dataset_size = trial.suggest_categorical("dataset_size", dataset_size_categorical)
 
