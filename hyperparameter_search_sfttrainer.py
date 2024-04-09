@@ -119,6 +119,10 @@ if torch.cuda.is_available():
 else:
     raise RuntimeError("No CUDA device found. Please use a CUDA-enabled device for training.")
 
+# Create the study directory
+if not os.path.exists(study_dir):
+    os.makedirs(study_dir)
+
 print(f"Using device: {device}")
 
 # Configuration for the model
@@ -274,9 +278,6 @@ optuna_kwargs = {
     "study_name": study_name,
     "storage": f"sqlite:///{study_dir}/optuna.db"
 }
-
-if not os.path.exists(study_dir):
-    os.makedirs(study_dir)
 
 # Run the hyperparameter search
 best_run = trainer.hyperparameter_search(
