@@ -81,7 +81,7 @@ stride = 50  # Stride for splitting the input into multiple sequences. Doesn't w
 # Training settings
 seed = 42  # Random seed for reproducibility
 dtype = "bfloat16"  # Data type to use for the model
-learning_rate = 1.2e-3  # Learning rate for the AdamW optimizer
+learning_rate = 8.2e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 2  # Number of training epochs
 per_device_train_batch_size = 14  # Batch size per GPU/TPU core/CPU for training
@@ -104,7 +104,7 @@ optim = "adamw_8bit"
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 20  # Number of hyperparameter search trials
+n_trials = 10  # Number of hyperparameter search trials
 lr_range = [1e-6, 1.4e-3]  # Range of learning rates to use for hyperparameter search
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 dataset_size_categorical = [1000, 2000, 3000]  # Categorical values for the number of examples to use from the dataset
