@@ -105,7 +105,7 @@ study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
 n_trials = 20  # Number of hyperparameter search trials
-lr_range = [1e-2, 1.4e-3]  # Range of learning rates to use for hyperparameter search
+lr_range = [1e-6, 1.4e-3]  # Range of learning rates to use for hyperparameter search
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 dataset_size_categorical = [1000, 2000, 3000]  # Categorical values for the number of examples to use from the dataset
 # Categorical values for the learning rate scheduler type
