@@ -44,8 +44,7 @@ warnings.filterwarnings(
 # Ignore the warning that starts with "Token indices sequence length is longer than the specified maximum sequence length for this model"
 warnings.filterwarnings(
     'ignore',
-    'Token indices sequence length is longer than the '
-    'specified maximum sequence length for this model.+',
+    'Flash Attention 2.0 only supports',
     append=True
 )
 
@@ -95,7 +94,7 @@ study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
 n_trials = 10  # Number of hyperparameter search trials
-lr_range = [1e-6, 1.4e-3]  # Range of learning rates to use for hyperparameter search
+lr_range = [8e-4, 8.5e-4]  # Range of learning rates to use for hyperparameter search
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 dataset_size_categorical = [1000, 2000, 3000]  # Categorical values for the number of examples to use from the dataset
 # Categorical values for the learning rate scheduler type
@@ -125,7 +124,6 @@ print(f"Using device: {device}")
 # Configuration for the model
 template_model_config = MistralConfig.from_pretrained(template_model_name)
 
-# with deepspeed.zero.Init():
 model_config = dict(
     hidden_size = hidden_size,
     intermediate_size = intermediate_size,
@@ -140,6 +138,7 @@ model_config = dict(
     torch_dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
     attn_implementation = "flash_attention_2"
 )
+model_config = MistralConfig(**model_config)
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
@@ -206,13 +205,7 @@ def hp_space(trial: optuna.Trial) -> dict:
 # Initialize the model
 def model_init() -> PreTrainedModel:
     print("Initialising the model...")
-    # with deepspeed.zero.Init():
-    model_config = MistralConfig(**model_config)
     model = MistralForCausalLM(model_config)
-
-    # Set the gradient checkpointing
-    if gradient_checkpointing:
-        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
     # If the dtype is float16 or bfloat16, convert the model to that dtype
     if model_config.torch_dtype == "float16" or model_config.torch_dtype == torch.float16:
@@ -251,12 +244,10 @@ training_args = TrainingArguments(
     evaluation_strategy="steps",
     eval_steps=0.5 / num_train_epochs - 0.001,
     save_strategy="no",
-    # save_steps=0.5 / num_train_epochs - 0.001,
     logging_dir=f"{study_dir}/logs/",
     logging_strategy="steps",
     logging_steps=min(0.1 / num_train_epochs, 100),
     report_to="none",
-    # load_best_model_at_end=True,
     seed=seed,
     bf16=(dtype == "bfloat16"),
     bf16_full_eval=(dtype == "bfloat16"),
@@ -293,7 +284,8 @@ best_run = trainer.hyperparameter_search(
     compute_objective=compute_objective,
     n_trials=n_trials,
     direction="minimize",
-    optuna_kwargs=optuna_kwargs,
+    backend="optuna",
+    **optuna_kwargs,
 )
 
 # Save the best run
