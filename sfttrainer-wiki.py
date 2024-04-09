@@ -205,6 +205,14 @@ def model_init() -> PreTrainedModel:
     return model
 
 
+def save_model() -> str:
+    model_path = f"{results_dir}/model"
+    trainer.save_model(model_path)
+    print(f"Model saved to {model_path}")
+
+    return model_path
+
+
 # TrainingArguments setup
 training_args = TrainingArguments(
     output_dir=results_dir,
@@ -289,16 +297,24 @@ hyperparameters = {
 with open(f"{results_dir}/hyperparameters.json", "w") as f:
     json.dump(hyperparameters, f, indent=2)
 
-# Train the model
-trainer.train()
 
-# Save the model
-model_path = f"{results_dir}/model"
-trainer.save_model(model_path)
-print(f"Model saved to {model_path}")
+# Train the model
+try:
+    trainer.train()
+except KeyboardInterrupt:
+    # Save the training progress
+    print("\nSaving the training progress...")
+    save_model()
+    print("Training progress saved.")
+    print("Training interrupted by user.")
+    exit()
 
 print("Training complete!")
 print()
+
+# Save the model
+model_path = save_model()
+
 # Display the results
 print("Results directory:", results_dir)
 print("Model saved to:", model_path)
