@@ -94,24 +94,6 @@ if not os.path.exists(results_dir):
 
 print(f"Using device: {device}")
 
-# Configuration for the model
-template_model_config = MistralConfig.from_pretrained(template_model_name)
-
-model_config = dict(
-    hidden_size=hidden_size,
-    intermediate_size=intermediate_size,
-    num_hidden_layers=hidden_layers,
-    num_attention_heads=attention_heads,
-    num_key_value_heads=1,  # Enables Multi-Query Attention (MQA)
-    max_position_embeddings=4096 * 32,
-    use_cache=False if gradient_checkpointing else True,
-    pad_token_id=template_model_config.pad_token_id,
-    sliding_window=context_length,
-    torch_dtype=torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
-    attn_implementation="flash_attention_2"
-)
-model_config = MistralConfig(**model_config)
-
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
 tokenizer = AutoTokenizer.from_pretrained(template_model_name)
@@ -125,6 +107,21 @@ tokenizer.stride = stride
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
+
+model_config = dict(
+    hidden_size=hidden_size,
+    intermediate_size=intermediate_size,
+    num_hidden_layers=hidden_layers,
+    num_attention_heads=attention_heads,
+    num_key_value_heads=1,  # Enables Multi-Query Attention (MQA)
+    max_position_embeddings=4096 * 32,
+    use_cache=False if gradient_checkpointing else True,
+    pad_token_id=tokenizer.pad_token_id,
+    sliding_window=context_length,
+    torch_dtype=torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
+    attn_implementation="flash_attention_2"
+)
+model_config = MistralConfig(**model_config)
 
 
 # Prepare the dataset
