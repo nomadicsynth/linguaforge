@@ -62,7 +62,7 @@ seed = 42  # Random seed for reproducibility
 dtype = "bfloat16"  # Data type to use for the model
 learning_rate = 8.6e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 1  # Number of training epochs
+num_train_epochs = 10  # Number of training epochs
 per_device_train_batch_size = 14  # Batch size per GPU/TPU core/CPU for training
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
@@ -234,6 +234,22 @@ print(f"  Results directory: {results_dir}")
 print(f"  Optimizer: {optim}")
 print()
 
+# Save the hyperparameters to a file
+hyperparameters = {
+    "learning_rate": learning_rate,
+    "lr_scheduler_type": lr_scheduler_type,
+    "per_device_train_batch_size": per_device_train_batch_size,
+    "num_train_epochs": num_train_epochs,
+    "warmup_ratio": warmup_ratio,
+    "attention_heads": attention_heads,
+    "gradient_accumulation_steps": gradient_accumulation_steps,
+    "weight_decay": weight_decay,
+    "results_dir": results_dir,
+    "optim": optim,
+}
+with open(f"{results_dir}/hyperparameters.json", "w") as f:
+    json.dump(hyperparameters, f, indent=2)
+
 # Train the model
 trainer.train()
 
@@ -242,5 +258,44 @@ model_path = f"{results_dir}/model"
 trainer.save_model(model_path)
 print(f"Model saved to {model_path}")
 
-# TODO: Evaluate the model
-# results = trainer.evaluate()
+print("Training complete!")
+print()
+# Display the results
+print("Results directory:", results_dir)
+print("Model saved to:", model_path)
+print("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
+print("Logs saved to:", f"{results_dir}/logs/")
+print()
+print("To view the training logs, run the following command:")
+print(f"tensorboard --logdir {results_dir}/logs/")
+print()
+print("You can now fine-tune the model further or use it for generating text.")
+
+# Congratulations! Your model has been trained successfully.
+
+# To fine-tune the model further, you can load the model using the following code:
+# model = MistralForCausalLM.from_pretrained(model_path)
+
+# To generate text using the model, you can use the following code:
+# from transformers import pipeline
+# generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
+# text = generator("Hello, world!", max_length=100)[0]["generated_text"]
+# print(text)
+
+# To use the model for downstream tasks, you can use the following code:
+# from transformers import Trainer, TrainingArguments
+# training_args = TrainingArguments(output_dir="./results")
+# trainer = Trainer(model=model, args=training_args)
+# trainer.train()
+
+# To evaluate the model on a dataset, you can use the following code:
+# from datasets import load_metric
+# metric = load_metric("accuracy")
+# predictions = model.predict(test_dataset)
+# metric.compute(predictions=predictions, references=test_dataset["label"])
+
+# To evaluate the model on BLEU score, you can use the following code:
+# from datasets import load_metric
+# metric = load_metric("bleu")
+# predictions = model.predict(test_dataset)
+# metric.compute(predictions=predictions, references=test_dataset["translation"])
