@@ -63,12 +63,12 @@ hf_token = os.getenv("HF_TOKEN")
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
 # Model settings
-hidden_layers = 18  # Number of transformer layers
-hidden_size = 1024  # Size of the hidden states in the transformer layers
+hidden_layers = 1  # Number of transformer layers
+hidden_size = 2048  # Size of the hidden states in the transformer layers
 intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
 attention_heads = 32  # Number of attention heads
 attn_dropout = 0.18486156277928165  # Dropout rate for the attention probabilities
-context_length = 512  # Maximum sequence length
+context_length = 1024  # Maximum sequence length
 
 # Dataset settings
 dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
@@ -81,14 +81,14 @@ stride = 50  # Stride for splitting the input into multiple sequences. Doesn't w
 # Training settings
 seed = 42  # Random seed for reproducibility
 dtype = "bfloat16"  # Data type to use for the model
-learning_rate = 1.2e-3  # Learning rate for the AdamW optimizer
-lr_scheduler_type = "cosine"  # Use a cosine annealing learning rate scheduler
+learning_rate = 5e-4  # Learning rate for the AdamW optimizer
+lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
 num_train_epochs = 2  # Number of training epochs
-per_device_train_batch_size = 6  # Batch size per GPU/TPU core/CPU for training
+per_device_train_batch_size = 8  # Batch size per GPU/TPU core/CPU for training
+gradient_accumulation_steps = 16  # Number of steps to accumulate gradients for
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
 weight_decay = 0.06388269955610547  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
-gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
 gradient_checkpointing = False  # Causes a segfault when enabled
 # Choose the optimizer to use
 # 'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
@@ -98,16 +98,16 @@ gradient_checkpointing = False  # Causes a segfault when enabled
 # 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
 # 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
 # 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
-optim = "adamw_bnb_8bit"
+optim = "adamw_8bit"
 
 # Optuna study settings
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 16  # Number of hyperparameter search trials
+n_trials = 15  # Number of hyperparameter search trials
+lr_range = [5e-5, 5e-3]  # Range of learning rates to use for hyperparameter search
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 dataset_size_categorical = [1000, 2000, 3000]  # Categorical values for the number of examples to use from the dataset
-lr_range = [5e-6, 5e-5]  # Range of learning rates to use for hyperparameter search
 # Categorical values for the learning rate scheduler type
 lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]
 attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
@@ -184,7 +184,7 @@ class Objective(TrainerCallback):
             # Model settings search space
             # dtype = trial.suggest_categorical("dtype", dtype_categorical)
             # attention_heads = trial.suggest_categorical("attention_heads", attention_heads_categorical)
-            hidden_layers = trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1])
+            # hidden_layers = trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1])
 
             # Hyperparameter search space
             learning_rate = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
@@ -197,7 +197,7 @@ class Objective(TrainerCallback):
 
             # per_device_train_batch_size = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
             # warmup_ratio = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
-            dataset_size = trial.suggest_categorical("dataset_size", dataset_size_categorical)
+            # dataset_size = trial.suggest_categorical("dataset_size", dataset_size_categorical)
 
             # Reset the best loss
             self.best_loss = np.inf
@@ -304,21 +304,16 @@ class Objective(TrainerCallback):
                 callbacks=[self, OptunaPruningCallback(trial, monitor="eval_loss")],
             )
 
-            # Print the model size with suffix 'G' or 'M'
-            model_size = sum(p.numel() for p in trainer.model.parameters())
-            model_size = model_size / 1e9 if model_size > 1e9 else model_size / 1e6
-            model_size_suffix = "G" if model_size > 1e3 else "M"
-
             dataset_train_size = len(self.dataset_train)
             dataset_eval_size = len(self.dataset_eval)
 
             # Print the hyperparameters
             print("Hyperparameters:")
-            print(f"  Data type: {dtype}")
+            # print(f"  Data type: {dtype}")
             print(f"  Hidden layers: {hidden_layers}")
-            print(f"  Hidden size: {hidden_size}")
-            print(f"  Intermediate size: {intermediate_size}")
-            print(f"  Attention heads: {attention_heads}")
+            # print(f"  Hidden size: {hidden_size}")
+            # print(f"  Intermediate size: {intermediate_size}")
+            # print(f"  Attention heads: {attention_heads}")
             # print(f"  Attention dropout: {attn_dropout}")
             print(f"  Learning rate: {learning_rate}")
             print(f"  Learning rate scheduler type: {lr_scheduler_type}")
@@ -328,8 +323,8 @@ class Objective(TrainerCallback):
             # print(f"  Max gradient norm: {max_grad_norm}")
             device_count = torch.cuda.device_count() if torch.cuda.is_available() else 1
             print(f"  Device count: {device_count}")
-            print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
             print(f"  Per device train batch size: {per_device_train_batch_size}")
+            print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
             print(f"  Effective batch size: {per_device_train_batch_size * gradient_accumulation_steps * device_count}")
             print(f"  Dataset size: {dataset_size} (Train: {dataset_train_size} / Eval: {dataset_eval_size})")
             # print(f"  Dataset split: {dataset_split}")
