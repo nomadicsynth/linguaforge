@@ -1,8 +1,10 @@
 import pickle
 import optuna
 
+study_path = "/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/mistral-small_hyperparameter_search-20240407-112304"
+
 # Load the saved study
-with open(f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/mistral-small_hyperparameter_search-20240407-025455/optuna_study.pkl", "rb") as f:
+with open(f"{study_path}/optuna_study.pkl", "rb") as f:
     study = pickle.load(f)
 
 # Analyze the study
