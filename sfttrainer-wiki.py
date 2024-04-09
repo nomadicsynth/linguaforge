@@ -3,6 +3,7 @@ import os
 # Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
+import argparse
 from datasets import load_dataset, DatasetDict
 import json
 import time
@@ -36,39 +37,69 @@ warnings.filterwarnings(
     append=True
 )
 
+# Set up command-line arguments with argparse
+parser = argparse.ArgumentParser(description="Train a Mistral model on a Wikipedia dataset.")
+parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
+parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
+parser.add_argument("--intermediate_size", type=int, default=4096, help="Size of the feed-forward network in the transformer layers")
+parser.add_argument("--attention_heads", type=int, default=32, help="Number of attention heads")
+parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
+parser.add_argument("--dataset_name", type=str, default="wikimedia/wikipedia", help="Name of the dataset to use")
+parser.add_argument("--dataset_config", type=str, default="20231101.en", help="Configuration of the dataset to use")
+parser.add_argument("--dataset_path", type=str, default="/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia", help="Path to the dataset")
+parser.add_argument("--dataset_size", type=int, default=500, help="Number of examples to use from the dataset")
+parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training")
+parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
+parser.add_argument("--results_dir", type=str, default=f"/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-{time.strftime('%Y%m%d-%H%M%S')}", help="Directory to save the results")
+parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+parser.add_argument("--dtype", type=str, default="bfloat16", help="Data type to use for the model")
+parser.add_argument("--learning_rate", type=float, default=8.6e-4, help="Learning rate for the AdamW optimizer")
+parser.add_argument("--lr_scheduler_type", type=str, default="linear", help="Learning rate scheduler type")
+parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
+parser.add_argument("--per_device_train_batch_size", type=int, default=14, help="Batch size per GPU/TPU core/CPU for training")
+parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of steps to accumulate gradients for")
+parser.add_argument("--warmup_ratio", type=float, default=0.10, help="Ratio of the number of warmup steps to the total number of training steps")
+parser.add_argument("--warmup_steps", type=int, default=None, help="Number of warmup steps")
+parser.add_argument("--weight_decay", type=float, default=0.0434, help="Weight decay for the AdamW optimizer")
+parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
+parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing")
+parser.add_argument("--optim", type=str, default="adamw_8bit", help="Optimizer to use")
+args = parser.parse_args()
+
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = "mistralai/Mistral-7B-v0.1"
 
 # Model settings
-hidden_layers = 1  # Number of transformer layers
-hidden_size = 2048  # Size of the hidden states in the transformer layers
-intermediate_size = 4096  # Size of the feed-forward network in the transformer layers
-attention_heads = 32  # Number of attention heads
-context_length = 1024  # Maximum sequence length
+hidden_layers = args.hidden_layers  # Number of transformer layers
+hidden_size = args.hidden_size  # Size of the hidden states in the transformer layers
+intermediate_size = args.intermediate_size  # Size of the feed-forward network in the transformer layers
+attention_heads = args.attention_heads  # Number of attention heads
+context_length = args.context_length  # Maximum sequence length
 
 # Dataset settings
-dataset_name = "wikimedia/wikipedia"  # Name of the dataset to use
-dataset_config = "20231101.en"  # Configuration of the dataset to use
-dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
-dataset_size = 500  # Number of examples to use from the dataset
-dataset_split = 0.9  # Percentage of examples to use for training
-stride = 150  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
+dataset_name = args.dataset_name  # Name of the dataset to use
+dataset_config = args.dataset_config  # Configuration of the dataset to use
+dataset_path = args.dataset_path  # Path to the dataset
+dataset_size = args.dataset_size  # Number of examples to use from the dataset
+dataset_split = args.dataset_split  # Percentage of examples to use for training
+stride = args.stride  # Stride for splitting the input into multiple sequences
 
 # Directory to save the results
-results_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-{time.strftime('%Y%m%d-%H%M%S')}"
+results_dir = args.results_dir
 
 # Training settings
-seed = 42  # Random seed for reproducibility
-dtype = "bfloat16"  # Data type to use for the model
-learning_rate = 8.6e-4  # Learning rate for the AdamW optimizer
-lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 10  # Number of training epochs
-per_device_train_batch_size = 14  # Batch size per GPU/TPU core/CPU for training
-gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
-warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
-weight_decay = 0.0434  # Weight decay for the AdamW optimizer
-max_grad_norm = 1.0  # Maximum gradient norm
-gradient_checkpointing = False  # Causes a segfault when enabled
+seed = args.seed  # Random seed for reproducibility
+dtype = args.dtype  # Data type to use for the model
+learning_rate = args.learning_rate  # Learning rate for the AdamW optimizer
+lr_scheduler_type = args.lr_scheduler_type  # Learning rate scheduler type
+num_train_epochs = args.num_train_epochs  # Number of training epochs
+per_device_train_batch_size = args.per_device_train_batch_size  # Batch size per GPU/TPU core/CPU for training
+gradient_accumulation_steps = args.gradient_accumulation_steps  # Number of steps to accumulate gradients for
+warmup_ratio = args.warmup_ratio  # Ratio of the number of warmup steps to the total number of training steps
+warmup_steps = args.warmup_steps  # Number of warmup steps
+weight_decay = args.weight_decay  # Weight decay for the AdamW optimizer
+max_grad_norm = args.max_grad_norm  # Maximum gradient norm
+gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpointing
 # Choose the optimizer to use
 # 'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
 # 'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision',
@@ -77,7 +108,7 @@ gradient_checkpointing = False  # Causes a segfault when enabled
 # 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
 # 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
 # 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
-optim = "adamw_8bit"
+optim = args.optim
 
 # Set seed for reproducibility
 set_seed(seed)
