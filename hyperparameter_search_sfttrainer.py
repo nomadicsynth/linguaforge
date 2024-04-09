@@ -1,10 +1,14 @@
-import json
 import os
 
 # Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
 from datasets import load_dataset, DatasetDict
+import json
+import optuna
+import pickle
+import time
+import torch
 from transformers import (
     AutoTokenizer,
     MistralConfig,
@@ -14,10 +18,6 @@ from transformers import (
 )
 from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
-import time
-import torch
-import optuna
-import pickle
 import warnings
 
 # Ignore the warning about gathering scalars
@@ -54,18 +54,18 @@ dataset_config = "20231101.en"  # Configuration of the dataset to use
 dataset_path = "/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia"  # Path to the dataset
 dataset_size = 500  # Number of examples to use from the dataset
 dataset_split = 0.9  # Percentage of examples to use for training
-stride = 50  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
+stride = 150  # Stride for splitting the input into multiple sequences. Doesn't work with Mistral according to CoPilot, but what would they know?
 
 # Training settings
 seed = 42  # Random seed for reproducibility
 dtype = "bfloat16"  # Data type to use for the model
-learning_rate = 8.2e-4  # Learning rate for the AdamW optimizer
+learning_rate = 8.6e-4  # Learning rate for the AdamW optimizer
 lr_scheduler_type = "linear"  # Use a cosine annealing learning rate scheduler
-num_train_epochs = 2  # Number of training epochs
+num_train_epochs = 1  # Number of training epochs
 per_device_train_batch_size = 14  # Batch size per GPU/TPU core/CPU for training
 gradient_accumulation_steps = 1  # Number of steps to accumulate gradients for
 warmup_ratio = 0.10  # Ratio of the number of warmup steps to the total number of training steps
-weight_decay = 0.06388269955610547  # Weight decay for the AdamW optimizer
+weight_decay = 0.0434  # Weight decay for the AdamW optimizer
 max_grad_norm = 1.0  # Maximum gradient norm
 gradient_checkpointing = False  # Causes a segfault when enabled
 # Choose the optimizer to use
@@ -82,7 +82,7 @@ optim = "adamw_8bit"
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 20  # Number of hyperparameter search trials
+n_trials = 1  # Number of hyperparameter search trials
 lr_range = [7e-4, 9e-4]  # Range of learning rates to use for hyperparameter search
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 # Categorical values for the learning rate scheduler type
@@ -146,12 +146,14 @@ dataset = load_dataset(dataset_path, dataset_config)
 
 
 # Prepare the dataset
-def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float) -> DatasetDict:
+def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool) -> DatasetDict:
     print("Preparing the dataset...")
     prepared_dataset = None
+    if shuffle:
+        dataset["train"] = dataset["train"].shuffle()
     # Select the first dataset_size examples from the training set
     if dataset_size > 0:
-        print("Selecting the first", dataset_size, "examples from the dataset...")
+        print("Selecting", dataset_size, "examples from the dataset...")
         prepared_dataset = dataset["train"].select(range(dataset_size))
     else:
         dataset_size = len(dataset["train"])
@@ -231,10 +233,10 @@ training_args = TrainingArguments(
     weight_decay=weight_decay,
     evaluation_strategy="steps",
     eval_steps=0.5 / num_train_epochs - 0.001,
-    save_strategy="no",
     logging_dir=f"{study_dir}/logs/",
     logging_strategy="steps",
     logging_steps=min(0.1 / num_train_epochs, 100),
+    save_strategy="no",
     report_to="none",
     seed=seed,
     bf16=(dtype == "bfloat16"),
@@ -284,27 +286,9 @@ best_model_path = f"{study_dir}/best_model"
 trainer.save_model(best_model_path)
 print(f"Best model saved to {best_model_path}")
 
-# Save the study
-study_path = f"{study_dir}/optuna_study.pkl"
-with open(study_path, "wb") as f:
-    pickle.dump(trainer.study, f)
-print(f"Study saved to {study_path}")
-
 # Print the best run
 print("Best run:")
 print(json.dumps(best_run, indent=4))
-
-# Analyze the study
-print("Study statistics: ")
-print("  Number of finished trials: ", len(trainer.study.trials))
-print("  Best trial:")
-trial = trainer.study.best_trial
-print("    Value: ", trial.value)
-print("    Params: ")
-for key, value in trial.params.items():
-    print(f"      {key}: {value}")
-
-print(trainer.study.trials_dataframe())
 
 # Visualize the study, saving the plots to the study directory
 optuna.visualization.plot_optimization_history(trainer.study).write_html(f"{study_dir}/plot_optimization_history.html")
