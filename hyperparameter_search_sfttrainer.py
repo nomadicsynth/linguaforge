@@ -1,17 +1,6 @@
-import os
-
-# Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
-
-# Set the DS_SKIP_CUDA_CHECK environment variable before importing deepspeed
-# os.environ["DS_SKIP_CUDA_CHECK"] = "1"
-
 from datasets import load_dataset, DatasetDict
 import json
-import optuna
-import pickle
-import time
-import torch
+import os
 from transformers import (
     AutoTokenizer,
     MistralConfig,
@@ -21,6 +10,12 @@ from transformers import (
 )
 from transformers.trainer_pt_utils import get_parameter_names
 from trl import set_seed, SFTTrainer
+import time
+# Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
+import torch
+import optuna
+import pickle
 import warnings
 
 # Ignore the warning about gathering scalars
@@ -38,13 +33,6 @@ warnings.filterwarnings(
     "Passing the following arguments to `Accelerator` "
     "is deprecated and will be removed in version 1.0 of Accelerate:",
     category=FutureWarning,
-    append=True
-)
-
-# Ignore the warning that starts with "Token indices sequence length is longer than the specified maximum sequence length for this model"
-warnings.filterwarnings(
-    'ignore',
-    'Flash Attention 2.0 only supports',
     append=True
 )
 
@@ -93,7 +81,7 @@ optim = "adamw_8bit"
 study_timestamp = time.strftime("%Y%m%d-%H%M%S")
 study_name = f"mistral-small_hyperparameter_search-{study_timestamp}"
 study_dir = f"/media/gronkomatic/Embiggen/ai-stuff/training-results/studies/{study_name}"
-n_trials = 10  # Number of hyperparameter search trials
+n_trials = 25  # Number of hyperparameter search trials
 lr_range = [1e-6, 1.4e-3]  # Range of learning rates to use for hyperparameter search
 dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
 dataset_size_categorical = [1000, 2000, 3000]  # Categorical values for the number of examples to use from the dataset
@@ -129,18 +117,18 @@ print(f"Using device: {device}")
 template_model_config = MistralConfig.from_pretrained(template_model_name)
 
 model_config = dict(
-    hidden_size = hidden_size,
-    intermediate_size = intermediate_size,
-    num_hidden_layers = hidden_layers,
-    num_attention_heads = attention_heads,
-    num_key_value_heads = 1,  # Enables Multi-Query Attention (MQA)
-    max_position_embeddings = 4096 * 32,
-    use_cache = False if gradient_checkpointing else True,
-    pad_token_id = template_model_config.pad_token_id,
-    sliding_window = context_length,
-    attention_dropout = attn_dropout,
-    torch_dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
-    attn_implementation = "flash_attention_2"
+    hidden_size=hidden_size,
+    intermediate_size=intermediate_size,
+    num_hidden_layers=hidden_layers,
+    num_attention_heads=attention_heads,
+    num_key_value_heads=1,  # Enables Multi-Query Attention (MQA)
+    max_position_embeddings=4096 * 32,
+    use_cache=False if gradient_checkpointing else True,
+    pad_token_id=template_model_config.pad_token_id,
+    sliding_window=context_length,
+    attention_dropout=attn_dropout,
+    torch_dtype=torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
+    attn_implementation="flash_attention_2"
 )
 model_config = MistralConfig(**model_config)
 
@@ -193,16 +181,16 @@ def hp_space(trial: optuna.Trial) -> dict:
         # "dtype": trial.suggest_categorical("dtype", dtype_categorical),
         # "attention_heads": trial.suggest_categorical("attention_heads", attention_heads_categorical),
         # "hidden_layers": trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1]),
-        "learning_rate": trial.suggest_float("learning_rate", lr_range[0], lr_range[1]),
+        # "learning_rate": trial.suggest_float("learning_rate", lr_range[0], lr_range[1]),
         # "lr_scheduler_type": trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types),
-        # "num_train_epochs": trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1]),
+        "num_train_epochs": trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1]),
         # "per_device_train_batch_size": trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1]),
         # "gradient_accumulation_steps": trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical),
         # "attn_dropout": trial.suggest_float("attn_dropout", attn_dropout_range[0], attn_dropout_range[1]),
         # "weight_decay": trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1]),
         # "max_grad_norm": trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1]),
         # "warmup_ratio": trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1]),
-        # "dataset_size": trial.suggest_categorical("dataset_size", dataset_size_categorical),
+        "dataset_size": trial.suggest_categorical("dataset_size", dataset_size_categorical),
     }
 
 
