@@ -128,7 +128,7 @@ dataset = load_dataset(dataset_path, dataset_config)
 
 
 # Prepare the dataset
-def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool) -> DatasetDict:
+def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool = False) -> DatasetDict:
     print("Preparing the dataset...")
     prepared_dataset = None
     if shuffle:
