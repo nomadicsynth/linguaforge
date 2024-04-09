@@ -410,9 +410,10 @@ class Objective(TrainerCallback):
         # Print the model size with suffix 'G' or 'M'
         model_size = sum(p.numel() for p in self.model.parameters())
         model_size = model_size / 1e9 if model_size > 1e9 else model_size / 1e6
+        model_size = round(model_size)
         model_size_suffix = "G" if model_size > 1e3 else "M"
 
-        print(f"Model size: {model_size:.2f}{model_size_suffix} parameters")
+        print(f"Model size: {model_size}{model_size_suffix} parameters")
 
         return self.model
 
