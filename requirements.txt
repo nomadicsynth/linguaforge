@@ -4,6 +4,7 @@ datasets
 deepspeed
 python-dotenv
 flash-attn
+mpi4py
 ninja
 optuna
 packaging
