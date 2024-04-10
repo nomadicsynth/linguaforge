@@ -145,10 +145,10 @@ model_config = dict(
     num_hidden_layers=hidden_layers,
     num_attention_heads=attention_heads,
     num_key_value_heads=1,  # Enables Multi-Query Attention (MQA)
-    max_position_embeddings=4096 * 32,
+    max_position_embeddings=context_length,
     use_cache=False if gradient_checkpointing else True,
     pad_token_id=tokenizer.pad_token_id,
-    sliding_window=context_length,
+    sliding_window=None,
     torch_dtype=torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
     attn_implementation="flash_attention_2"
 )
