@@ -172,20 +172,19 @@ optim = args.optim
 run_hyperparameter_search = args.run_hyperparameter_search  # Enable hyperparameter search
 study_name = args.study_name  # Name of the Optuna study
 study_dir = f"{output_dir}/optuna-study-{timestamp}"
-n_trials = 1  # Number of hyperparameter search trials
-lr_range = [7e-4, 9e-4]  # Range of learning rates to use for hyperparameter search
-dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
+n_trials = args.n_trials  # Number of hyperparameter search trials
+lr_range = args.lr_range  # Range of learning rates to use for hyperparameter search
+dtype_categorical = args.dtype_categorical  # Categorical values for the data type to use
 # Categorical values for the learning rate scheduler type
-lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]
-attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
-train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparameter search
-warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
-# Categorical values for the number of gradient accumulation steps
-per_device_train_batch_size_range = [1, 6]  # Range of batch sizes to use for hyperparameter search
-gradient_accumulation_steps_categorical = [1, 2, 4, 8]
-weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
-max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
-hidden_layers_range = [1, 18]  # Range of hidden layers to use for hyperparameter search
+lr_scheduler_types = args.lr_scheduler_types
+attention_heads_categorical = args.attention_heads_categorical  # Categorical values for the number of attention heads
+train_epochs_range = args.train_epochs_range  # Range of training epochs to use for hyperparameter search
+warmup_ratio_range = args.warmup_ratio_range  # Range of warmup ratios to use for hyperparameter search
+per_device_train_batch_size_range = args.per_device_train_batch_size_range  # Range of batch sizes to use for hyperparameter search
+gradient_accumulation_steps_categorical = args.gradient_accumulation_steps_categorical  # Categorical values for the number of gradient accumulation steps
+weight_decay_range = args.weight_decay_range  # Range of weight decay values to use for hyperparameter search
+max_grad_norm_range = args.max_grad_norm_range  # Range of maximum gradient norms to use for hyperparameter search
+hidden_layers_range = args.hidden_layers_range  # Range of hidden layers to use for hyperparameter search
 
 # Set the final output directory
 if run_hyperparameter_search:
