@@ -360,9 +360,8 @@ def model_init() -> PreTrainedModel:
     print("Initialising the model...")
     model = MistralForCausalLM(model_config)
 
-    # If there are additional special tokens, add them to the model
-    if args.additional_special_tokens:
-        model.resize_token_embeddings(len(tokenizer))
+    # Resize the token embeddings to match the tokenizer
+    model.resize_token_embeddings(len(tokenizer))
 
     # If the dtype is float16 or bfloat16, convert the model to that dtype
     if model_config.torch_dtype == "float16" or model_config.torch_dtype == torch.float16:
