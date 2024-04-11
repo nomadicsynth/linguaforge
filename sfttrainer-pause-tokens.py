@@ -371,7 +371,7 @@ training_args = TrainingArguments(
     save_strategy="epoch",
     logging_dir=f"{results_dir}/logs/",
     logging_strategy="steps",
-    logging_steps=min(0.1 / num_train_epochs, 100),
+    logging_steps=0.1 / num_train_epochs
     load_best_model_at_end=True,
     seed=seed,
     bf16=(dtype == torch.bfloat16),
