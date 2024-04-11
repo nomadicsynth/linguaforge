@@ -333,7 +333,7 @@ def save_model(path: str) -> str:
 
 
 # TrainingArguments setup
-training_args = dict(
+training_args = TrainingArguments(
     output_dir=results_dir,
     num_train_epochs=num_train_epochs,
     per_device_train_batch_size=per_device_train_batch_size,
@@ -358,18 +358,8 @@ training_args = dict(
     bf16_full_eval=(dtype == "bfloat16"),
     fp16=(dtype == "float16"),
     fp16_full_eval=(dtype == "float16"),
+    report_to="none" if run_hyperparameter_search else "tensorboard",
 )
-
-if not run_hyperparameter_search:
-    training_args = TrainingArguments(
-        report_to="tensorboard",
-        **training_args
-    )
-else:
-    training_args = TrainingArguments(
-        report_to="none",
-        **training_args
-    )
 
 # Prepare the dataset
 prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split)
