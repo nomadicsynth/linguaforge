@@ -6,6 +6,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 import argparse
 from datasets import load_dataset, DatasetDict
 import json
+import optuna
 import time
 import torch
 from transformers import (
@@ -15,7 +16,8 @@ from transformers import (
     PreTrainedModel,
     TrainingArguments,
 )
-from transformers.trainer_pt_utils import get_parameter_names
+from transformers.tokenization_utils_base import TruncationStrategy
+from transformers.utils import PaddingStrategy
 from trl import set_seed, SFTTrainer
 import warnings
 
@@ -39,18 +41,31 @@ warnings.filterwarnings(
 
 # Set up command-line arguments with argparse
 parser = argparse.ArgumentParser(description="Train a Mistral model on a Wikipedia dataset.")
+
+# Add the argument for the project name
+parser.add_argument("--project_name", type=str, default="mistral-wiki", help="Name of the project")
+
+# Add the argument for the results directory
+parser.add_argument("--output_dir", type=str,
+                    default=f"/media/gronkomatic/Embiggen/ai-stuff/training-results", help="Directory to save the results")
+
+# Add the arguments for the model settings
+parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
 parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
 parser.add_argument("--intermediate_size", type=int, default=4096, help="Size of the feed-forward network in the transformer layers")
 parser.add_argument("--attention_heads", type=int, default=32, help="Number of attention heads")
 parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
+
+# Add the arguments for the dataset settings
 parser.add_argument("--dataset_name", type=str, default="wikimedia/wikipedia", help="Name of the dataset to use")
 parser.add_argument("--dataset_config", type=str, default="20231101.en", help="Configuration of the dataset to use")
 parser.add_argument("--dataset_path", type=str, default="/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia", help="Path to the dataset")
 parser.add_argument("--dataset_size", type=int, default=500, help="Number of examples to use from the dataset")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
-parser.add_argument("--results_dir", type=str, default=f"/media/gronkomatic/Embiggen/ai-stuff/training-results/runs/run-{time.strftime('%Y%m%d-%H%M%S')}", help="Directory to save the results")
+
+# Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 parser.add_argument("--dtype", type=str, default="bfloat16", help="Data type to use for the model")
 parser.add_argument("--learning_rate", type=float, default=8.6e-4, help="Learning rate for the AdamW optimizer")
@@ -64,10 +79,30 @@ parser.add_argument("--weight_decay", type=float, default=0.0434, help="Weight d
 parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
 parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing")
 parser.add_argument("--optim", type=str, default="adamw_8bit", help="Optimizer to use")
+
+# Add the arguments for the Optuna study
+parser.add_argument("--run_hyperparameter_search", action="store_true", help="Enable hyperparameter search")
+parser.add_argument("--study_name", type=str, default=f"hyperparameter_search", help="Name of the Optuna study")
+parser.add_argument("--n_trials", type=int, default=1, help="Number of hyperparameter search trials")
+parser.add_argument("--lr_range", type=float, nargs=2, default=[7e-4, 9e-4], help="Range of learning rates to use for hyperparameter search")
+parser.add_argument("--dtype_categorical", type=str, nargs="+", default=["float16", "bfloat16"], help="Categorical values for the data type to use")
+parser.add_argument("--lr_scheduler_types", type=str, nargs="+", default=["linear", "cosine", "cosine_with_restarts", "polynomial"], help="Categorical values for the learning rate scheduler type")
+parser.add_argument("--attention_heads_categorical", type=int, nargs="+", default=[8, 16, 32, 64], help="Categorical values for the number of attention heads")
+parser.add_argument("--train_epochs_range", type=int, nargs=2, default=[1, 7], help="Range of training epochs to use for hyperparameter search")
+parser.add_argument("--warmup_ratio_range", type=float, nargs=2, default=[0.1, 0.2], help="Range of warmup ratios to use for hyperparameter search")
+parser.add_argument("--per_device_train_batch_size_range", type=int, nargs=2, default=[1, 6], help="Range of batch sizes to use for hyperparameter search")
+parser.add_argument("--gradient_accumulation_steps_categorical", type=int, nargs="+", default=[1, 2, 4, 8], help="Categorical values for the number of gradient accumulation steps")
+parser.add_argument("--weight_decay_range", type=float, nargs=2, default=[0.0, 0.1], help="Range of weight decay values to use for hyperparameter search")
+parser.add_argument("--max_grad_norm_range", type=float, nargs=2, default=[0.5, 1.5], help="Range of maximum gradient norms to use for hyperparameter search")
+parser.add_argument("--hidden_layers_range", type=int, nargs=2, default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
+
 args = parser.parse_args()
 
+timestamp = time.strftime("%Y%m%d-%H%M%S")
+output_dir = args.output_dir + "/" + args.project_name
+
 # Use Mistral-7B-v0.1 as a template for the model settings
-template_model_name = "mistralai/Mistral-7B-v0.1"
+template_model_name = args.template_model_name
 
 # Model settings
 hidden_layers = args.hidden_layers  # Number of transformer layers
@@ -85,7 +120,7 @@ dataset_split = args.dataset_split  # Percentage of examples to use for training
 stride = args.stride  # Stride for splitting the input into multiple sequences
 
 # Directory to save the results
-results_dir = args.results_dir
+results_dir = f"{output_dir}/training-run-{timestamp}"
 
 # Training settings
 seed = args.seed  # Random seed for reproducibility
@@ -110,6 +145,29 @@ gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpoi
 # 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
 optim = args.optim
 
+# Optuna study settings
+run_hyperparameter_search = args.run_hyperparameter_search  # Enable hyperparameter search
+study_name = args.study_name  # Name of the Optuna study
+study_dir = f"{output_dir}/optuna-study-{timestamp}"
+n_trials = 1  # Number of hyperparameter search trials
+lr_range = [7e-4, 9e-4]  # Range of learning rates to use for hyperparameter search
+dtype_categorical = ["float16", "bfloat16"]  # Categorical values for the data type to use
+# Categorical values for the learning rate scheduler type
+lr_scheduler_types = ["linear", "cosine", "cosine_with_restarts", "polynomial"]
+attention_heads_categorical = [8, 16, 32, 64]  # Categorical values for the number of attention heads
+train_epochs_range = [1, 7]  # Range of training epochs to use for hyperparameter search
+warmup_ratio_range = [0.1, 0.2]  # Range of warmup ratios to use for hyperparameter search
+# Categorical values for the number of gradient accumulation steps
+per_device_train_batch_size_range = [1, 6]  # Range of batch sizes to use for hyperparameter search
+gradient_accumulation_steps_categorical = [1, 2, 4, 8]
+weight_decay_range = [0.0, 0.1]  # Range of weight decay values to use for hyperparameter search
+max_grad_norm_range = [0.5, 1.5]  # Range of maximum gradient norms to use for hyperparameter search
+hidden_layers_range = [1, 18]  # Range of hidden layers to use for hyperparameter search
+
+# Set the final output directory
+if run_hyperparameter_search:
+    results_dir = study_dir
+
 # Set seed for reproducibility
 set_seed(seed)
 
@@ -130,10 +188,16 @@ print(f"Loading the tokenizer from {template_model_name}...")
 tokenizer = AutoTokenizer.from_pretrained(template_model_name)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 tokenizer.padding_side = 'right'
-
-# Set stride for splitting the input into multiple sequences
 tokenizer.model_max_length = context_length
-tokenizer.stride = stride
+
+# Set up truncation and padding
+tokenizer.set_truncation_and_padding(
+    padding_strategy=PaddingStrategy.LONGEST,
+    truncation_strategy=TruncationStrategy.LONGEST_FIRST,
+    max_length=context_length,
+    stride=stride,
+    pad_to_multiple_of=8
+)
 
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
@@ -180,6 +244,28 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     return prepared_dataset
 
 
+# Hyperparameter search objective function
+def compute_objective(metrics: dict) -> float:
+    return metrics["eval_loss"]
+
+
+# Hyperparameter search space
+def hp_space(trial: optuna.Trial) -> dict:
+    return {
+        # "dtype": trial.suggest_categorical("dtype", dtype_categorical),
+        # "attention_heads": trial.suggest_categorical("attention_heads", attention_heads_categorical),
+        # "hidden_layers": trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1]),
+        "learning_rate": trial.suggest_float("learning_rate", lr_range[0], lr_range[1]),
+        # "lr_scheduler_type": trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types),
+        # "num_train_epochs": trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1]),
+        # "per_device_train_batch_size": trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1]),
+        # "gradient_accumulation_steps": trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical),
+        "weight_decay": trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1]),
+        # "max_grad_norm": trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1]),
+        # "warmup_ratio": trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1]),
+    }
+
+
 # Initialize the model
 def model_init() -> PreTrainedModel:
     print("Initialising the model...")
@@ -205,8 +291,8 @@ def model_init() -> PreTrainedModel:
     return model
 
 
-def save_model() -> str:
-    model_path = f"{results_dir}/model"
+def save_model(path: str) -> str:
+    model_path = f"{path}/model"
     trainer.save_model(model_path)
     print(f"Model saved to {model_path}")
 
@@ -214,32 +300,62 @@ def save_model() -> str:
 
 
 # TrainingArguments setup
-training_args = TrainingArguments(
-    output_dir=results_dir,
-    num_train_epochs=num_train_epochs,
-    per_device_train_batch_size=per_device_train_batch_size,
-    per_device_eval_batch_size=per_device_train_batch_size,
-    gradient_accumulation_steps=gradient_accumulation_steps,
-    gradient_checkpointing=gradient_checkpointing,
-    max_grad_norm=max_grad_norm,
-    warmup_steps=warmup_steps,
-    learning_rate=learning_rate,
-    lr_scheduler_type=lr_scheduler_type,
-    optim=optim,
-    weight_decay=weight_decay,
-    evaluation_strategy="epoch",
-    save_strategy="epoch",
-    logging_dir=f"{results_dir}/logs/",
-    logging_strategy="steps",
-    logging_steps=min(0.1 / num_train_epochs, 100),
-    report_to="tensorboard",
-    load_best_model_at_end=True,
-    seed=seed,
-    bf16=(dtype == "bfloat16"),
-    bf16_full_eval=(dtype == "bfloat16"),
-    fp16=(dtype == "float16"),
-    fp16_full_eval=(dtype == "float16"),
-)
+if not run_hyperparameter_search:
+    training_args = TrainingArguments(
+        output_dir=results_dir,
+        num_train_epochs=num_train_epochs,
+        per_device_train_batch_size=per_device_train_batch_size,
+        per_device_eval_batch_size=per_device_train_batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        gradient_checkpointing=gradient_checkpointing,
+        max_grad_norm=max_grad_norm,
+        warmup_ratio=warmup_ratio,
+        warmup_steps=warmup_steps,
+        learning_rate=learning_rate,
+        lr_scheduler_type=lr_scheduler_type,
+        optim=optim,
+        weight_decay=weight_decay,
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        logging_dir=f"{results_dir}/logs/",
+        logging_strategy="steps",
+        logging_steps=min(0.1 / num_train_epochs, 100),
+        report_to="tensorboard",
+        load_best_model_at_end=True,
+        seed=seed,
+        bf16=(dtype == "bfloat16"),
+        bf16_full_eval=(dtype == "bfloat16"),
+        fp16=(dtype == "float16"),
+        fp16_full_eval=(dtype == "float16"),
+    )
+else:
+    training_args = TrainingArguments(
+        output_dir=results_dir,
+        num_train_epochs=num_train_epochs,
+        per_device_train_batch_size=per_device_train_batch_size,
+        per_device_eval_batch_size=per_device_train_batch_size,
+        gradient_accumulation_steps=gradient_accumulation_steps,
+        gradient_checkpointing=gradient_checkpointing,
+        max_grad_norm=max_grad_norm,
+        warmup_ratio=warmup_ratio,
+        warmup_steps=warmup_steps,
+        learning_rate=learning_rate,
+        lr_scheduler_type=lr_scheduler_type,
+        optim=optim,
+        weight_decay=weight_decay,
+        evaluation_strategy="epoch",
+        save_strategy="epoch",
+        logging_dir=f"{results_dir}/logs/",
+        logging_strategy="steps",
+        logging_steps=min(0.1 / num_train_epochs, 100),
+        report_to="none",
+        load_best_model_at_end=True,
+        seed=seed,
+        bf16=(dtype == "bfloat16"),
+        bf16_full_eval=(dtype == "bfloat16"),
+        fp16=(dtype == "float16"),
+        fp16_full_eval=(dtype == "float16"),
+    )
 
 # Prepare the dataset
 prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split)
@@ -267,90 +383,150 @@ trainer = SFTTrainer(
     tokenizer=tokenizer,
 )
 
-# Print the hyperparameters
-print("Hyperparameters:")
-print(f"  Learning rate: {learning_rate}")
-print(f"  Learning rate scheduler: {lr_scheduler_type}")
-print(f"  Per-device train batch size: {per_device_train_batch_size}")
-print(f"  Epochs: {num_train_epochs}")
-print(f"  Warmup ratio: {warmup_ratio}")
-print(f"  Attention heads: {attention_heads}")
-print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
-print(f"  Weight decay: {weight_decay}")
-print(f"  Results directory: {results_dir}")
-print(f"  Optimizer: {optim}")
-print()
 
-# Save the hyperparameters to a file
-hyperparameters = {
-    "learning_rate": learning_rate,
-    "lr_scheduler_type": lr_scheduler_type,
-    "per_device_train_batch_size": per_device_train_batch_size,
-    "num_train_epochs": num_train_epochs,
-    "warmup_ratio": warmup_ratio,
-    "attention_heads": attention_heads,
-    "gradient_accumulation_steps": gradient_accumulation_steps,
-    "weight_decay": weight_decay,
-    "results_dir": results_dir,
-    "optim": optim,
-}
-with open(f"{results_dir}/hyperparameters.json", "w") as f:
-    json.dump(hyperparameters, f, indent=2)
+def run_training():
+    # Print the hyperparameters
+    print("Hyperparameters:")
+    print(f"  Learning rate: {learning_rate}")
+    print(f"  Learning rate scheduler: {lr_scheduler_type}")
+    print(f"  Per-device train batch size: {per_device_train_batch_size}")
+    print(f"  Epochs: {num_train_epochs}")
+    print(f"  Warmup ratio: {warmup_ratio}")
+    print(f"  Attention heads: {attention_heads}")
+    print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
+    print(f"  Weight decay: {weight_decay}")
+    print(f"  Results directory: {results_dir}")
+    print(f"  Optimizer: {optim}")
+    print()
+
+    # Save the hyperparameters to a file
+    hyperparameters = {
+        "learning_rate": learning_rate,
+        "lr_scheduler_type": lr_scheduler_type,
+        "per_device_train_batch_size": per_device_train_batch_size,
+        "num_train_epochs": num_train_epochs,
+        "warmup_ratio": warmup_ratio,
+        "attention_heads": attention_heads,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "weight_decay": weight_decay,
+        "results_dir": results_dir,
+        "optim": optim,
+    }
+    with open(f"{results_dir}/hyperparameters.json", "w") as f:
+        json.dump(hyperparameters, f, indent=2)
 
 
-# Train the model
-try:
-    trainer.train()
-except KeyboardInterrupt:
-    # Save the training progress
-    print("\nSaving the training progress...")
-    save_model()
-    print("Training progress saved.")
-    print("Training interrupted by user.")
-    exit()
+    # Train the model
+    try:
+        trainer.train()
+    except KeyboardInterrupt:
+        # Save the training progress
+        print("\nSaving the training progress...")
+        save_model()
+        print("Training progress saved.")
+        print("Training interrupted by user.")
+        exit()
 
-print("Training complete!")
-print()
+    print("Training complete!")
+    print()
 
-# Save the model
-model_path = save_model()
+    # Save the model
+    model_path = save_model()
 
-# Display the results
-print("Results directory:", results_dir)
-print("Model saved to:", model_path)
-print("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
-print("Logs saved to:", f"{results_dir}/logs/")
-print()
-print("To view the training logs, run the following command:")
-print(f"tensorboard --logdir {results_dir}/logs/")
-print()
-print("You can now fine-tune the model further or use it for generating text.")
+    # Display the results
+    print("Results directory:", results_dir)
+    print("Model saved to:", model_path)
+    print("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
+    print("Logs saved to:", f"{results_dir}/logs/")
+    print()
+    print("To view the training logs, run the following command:")
+    print(f"tensorboard --logdir {results_dir}/logs/")
+    print()
+    print("You can now fine-tune the model further or use it for generating text.")
 
-# Congratulations! Your model has been trained successfully.
+    # Congratulations! Your model has been trained successfully.
 
-# To fine-tune the model further, you can load the model using the following code:
-# model = MistralForCausalLM.from_pretrained(model_path)
+    # To fine-tune the model further, you can load the model using the following code:
+    # model = MistralForCausalLM.from_pretrained(model_path)
 
-# To generate text using the model, you can use the following code:
-# from transformers import pipeline
-# generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
-# text = generator("Hello, world!", max_length=100)[0]["generated_text"]
-# print(text)
+    # To generate text using the model, you can use the following code:
+    # from transformers import pipeline
+    # generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
+    # text = generator("Hello, world!", max_length=100)[0]["generated_text"]
+    # print(text)
 
-# To use the model for downstream tasks, you can use the following code:
-# from transformers import Trainer, TrainingArguments
-# training_args = TrainingArguments(output_dir="./results")
-# trainer = Trainer(model=model, args=training_args)
-# trainer.train()
+    # To use the model for downstream tasks, you can use the following code:
+    # from transformers import Trainer, TrainingArguments
+    # training_args = TrainingArguments(output_dir="./results")
+    # trainer = Trainer(model=model, args=training_args)
+    # trainer.train()
 
-# To evaluate the model on a dataset, you can use the following code:
-# from datasets import load_metric
-# metric = load_metric("accuracy")
-# predictions = model.predict(test_dataset)
-# metric.compute(predictions=predictions, references=test_dataset["label"])
+    # To evaluate the model on a dataset, you can use the following code:
+    # from datasets import load_metric
+    # metric = load_metric("accuracy")
+    # predictions = model.predict(test_dataset)
+    # metric.compute(predictions=predictions, references=test_dataset["label"])
 
-# To evaluate the model on BLEU score, you can use the following code:
-# from datasets import load_metric
-# metric = load_metric("bleu")
-# predictions = model.predict(test_dataset)
-# metric.compute(predictions=predictions, references=test_dataset["translation"])
+    # To evaluate the model on BLEU score, you can use the following code:
+    # from datasets import load_metric
+    # metric = load_metric("bleu")
+    # predictions = model.predict(test_dataset)
+    # metric.compute(predictions=predictions, references=test_dataset["translation"])
+
+def run_study():
+    optuna_kwargs = {
+        "study_name": study_name,
+        "storage": f"sqlite:///{results_dir}/optuna.db"
+    }
+
+    # Run the hyperparameter search
+    best_run = trainer.hyperparameter_search(
+        hp_space=hp_space,
+        compute_objective=compute_objective,
+        n_trials=n_trials,
+        direction="minimize",
+        backend="optuna",
+        **optuna_kwargs,
+    )
+
+    # Save the best run
+    best_run_path = f"{results_dir}/best_run.json"
+    with open(best_run_path, "w") as f:
+        json.dump(best_run, f, indent=4)
+    print(f"Best run saved to {best_run_path}")
+
+    # Save the best model
+    best_model_path = save_model(results_dir)
+
+    # Print the best run
+    print("Best run:")
+    print(json.dumps(best_run, indent=4))
+
+    # Visualize the study, saving the plots to the study directory
+    vis_dir = f"{results_dir}/visualizations"
+    optuna.visualization.plot_optimization_history(trainer.study).write_html(
+        f"{vis_dir}/plot_optimization_history.html")
+    optuna.visualization.plot_slice(trainer.study).write_html(f"{vis_dir}/plot_slice.html")
+    optuna.visualization.plot_parallel_coordinate(trainer.study).write_html(f"{vis_dir}/plot_parallel_coordinate.html")
+    optuna.visualization.plot_param_importances(trainer.study).write_html(f"{vis_dir}/plot_param_importances.html")
+    optuna.visualization.plot_contour(trainer.study).write_html(f"{vis_dir}/plot_contour.html")
+    optuna.visualization.plot_edf(trainer.study).write_html(f"{vis_dir}/plot_edf.html")
+    optuna.visualization.plot_intermediate_values(trainer.study).write_html(f"{vis_dir}/plot_intermediate_values.html")
+    print("Study visualizations saved to", vis_dir)
+
+    # Display the results
+    print("Results directory:", results_dir)
+    print("Best run saved to:", best_run_path)
+    print("Best model saved to:", best_model_path)
+    print("Study visualizations saved to:", vis_dir)
+    print("Logs saved to:", f"{results_dir}/logs/")
+    print()
+    print("To view the training logs, run the following command:")
+    print(f"tensorboard --logdir {results_dir}/logs/")
+
+
+# Run whatever is needed
+if run_hyperparameter_search:
+    run_study()
+else:
+    run_training()
