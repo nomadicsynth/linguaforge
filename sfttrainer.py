@@ -234,12 +234,42 @@ tokenizer.set_truncation_and_padding(
     pad_to_multiple_of=8
 )
 
+# Add assistant token to the tokenizer for the chat template because it is not in the vocabulary without a space in front of it!
+tokenizer.add_tokens(["assistant"])
+print(f"'assistant' token added to the tokenizer because it is not in the vocabulary without a space in front of it!")
+
+# Add special tokens to the tokenizer
+# Add "<|im_start|>", "<|im_end|>", "<|pause|>", "<|mem_start|>", "<|mem_end|>", etc.
+additional_special_tokens = [
+    "<|im_start|>", "<|im_end|>",
+    "<|named_user|>",  # Named user. For future use. Example: "<|im_start|><|named_user|>Alice\n<Alice's message><|im_end|>"
+    "<|named_assistant|>",  # Named assistant. For future use. Example: "<|im_start|><|named_assistant|>Assistant George\n<Assistant George's message><|im_end|>"
+    "<|mem_start|>", "<|mem_end|>",  # Memory start and end tokens. For future use. Store hidden information in the context, e.g. "<|mem_start|>Alice's birthday is 12th May.<|mem_end|>"
+    "<|pause|>",  # Pause token. For future use. See https://arxiv.org/abs/2310.02226.pdf Think before you speak: Training Language Models With Pause Tokens
+]
+
 # Add additional special tokens
 if args.additional_special_tokens:
-    tokenizer.add_special_tokens(
-        {"additional_special_tokens": args.additional_special_tokens},
-        replace_additional_special_tokens=False
-    )
+    additional_special_tokens += args.additional_special_tokens
+
+# Add <|spare_1|>, <|spare_2|>, etc. to the tokenizer to make the vocab size a multiple of 8
+for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1):
+    additional_special_tokens.append(f"<|spare_{i}|>")
+
+tokenizer.add_special_tokens(
+    {"additional_special_tokens": additional_special_tokens},
+    replace_additional_special_tokens=False
+)
+
+if args.additional_special_tokens:
+    print(f"Additional special tokens added to the tokenizer.")
+
+    # Print the token IDs of the special tokens
+    for token in args.additional_special_tokens:
+        print(f"{token}: {tokenizer(token)}")
+
+# Assert that the vocab size is a multiple of 8
+assert (len(tokenizer)) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code, dumbass!"
 
 # Set up the chat template
 if args.chat_template:
@@ -329,6 +359,10 @@ def hp_space(trial: optuna.Trial) -> dict:
 def model_init() -> PreTrainedModel:
     print("Initialising the model...")
     model = MistralForCausalLM(model_config)
+
+    # If there are additional special tokens, add them to the model
+    if args.additional_special_tokens:
+        model.resize_token_embeddings(len(tokenizer))
 
     # If the dtype is float16 or bfloat16, convert the model to that dtype
     if model_config.torch_dtype == "float16" or model_config.torch_dtype == torch.float16:
