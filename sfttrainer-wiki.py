@@ -300,61 +300,42 @@ def save_model(path: str) -> str:
 
 
 # TrainingArguments setup
+training_args = dict(
+    output_dir=results_dir,
+    num_train_epochs=num_train_epochs,
+    per_device_train_batch_size=per_device_train_batch_size,
+    per_device_eval_batch_size=per_device_train_batch_size,
+    gradient_accumulation_steps=gradient_accumulation_steps,
+    gradient_checkpointing=gradient_checkpointing,
+    max_grad_norm=max_grad_norm,
+    warmup_ratio=warmup_ratio,
+    warmup_steps=warmup_steps,
+    learning_rate=learning_rate,
+    lr_scheduler_type=lr_scheduler_type,
+    optim=optim,
+    weight_decay=weight_decay,
+    evaluation_strategy="epoch",
+    save_strategy="epoch",
+    logging_dir=f"{results_dir}/logs/",
+    logging_strategy="steps",
+    logging_steps=min(0.1 / num_train_epochs, 100),
+    load_best_model_at_end=True,
+    seed=seed,
+    bf16=(dtype == "bfloat16"),
+    bf16_full_eval=(dtype == "bfloat16"),
+    fp16=(dtype == "float16"),
+    fp16_full_eval=(dtype == "float16"),
+)
+
 if not run_hyperparameter_search:
     training_args = TrainingArguments(
-        output_dir=results_dir,
-        num_train_epochs=num_train_epochs,
-        per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=per_device_train_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        gradient_checkpointing=gradient_checkpointing,
-        max_grad_norm=max_grad_norm,
-        warmup_ratio=warmup_ratio,
-        warmup_steps=warmup_steps,
-        learning_rate=learning_rate,
-        lr_scheduler_type=lr_scheduler_type,
-        optim=optim,
-        weight_decay=weight_decay,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        logging_dir=f"{results_dir}/logs/",
-        logging_strategy="steps",
-        logging_steps=min(0.1 / num_train_epochs, 100),
         report_to="tensorboard",
-        load_best_model_at_end=True,
-        seed=seed,
-        bf16=(dtype == "bfloat16"),
-        bf16_full_eval=(dtype == "bfloat16"),
-        fp16=(dtype == "float16"),
-        fp16_full_eval=(dtype == "float16"),
+        **training_args
     )
 else:
     training_args = TrainingArguments(
-        output_dir=results_dir,
-        num_train_epochs=num_train_epochs,
-        per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=per_device_train_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        gradient_checkpointing=gradient_checkpointing,
-        max_grad_norm=max_grad_norm,
-        warmup_ratio=warmup_ratio,
-        warmup_steps=warmup_steps,
-        learning_rate=learning_rate,
-        lr_scheduler_type=lr_scheduler_type,
-        optim=optim,
-        weight_decay=weight_decay,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        logging_dir=f"{results_dir}/logs/",
-        logging_strategy="steps",
-        logging_steps=min(0.1 / num_train_epochs, 100),
         report_to="none",
-        load_best_model_at_end=True,
-        seed=seed,
-        bf16=(dtype == "bfloat16"),
-        bf16_full_eval=(dtype == "bfloat16"),
-        fp16=(dtype == "float16"),
-        fp16_full_eval=(dtype == "float16"),
+        **training_args
     )
 
 # Prepare the dataset
@@ -422,7 +403,7 @@ def run_training():
     except KeyboardInterrupt:
         # Save the training progress
         print("\nSaving the training progress...")
-        save_model()
+        save_model(results_dir)
         print("Training progress saved.")
         print("Training interrupted by user.")
         exit()
@@ -431,7 +412,7 @@ def run_training():
     print()
 
     # Save the model
-    model_path = save_model()
+    model_path = save_model(results_dir)
 
     # Display the results
     print("Results directory:", results_dir)
