@@ -53,14 +53,16 @@ parser.add_argument("--output_dir", type=str,
 parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
 parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
-parser.add_argument("--intermediate_size", type=int, default=4096, help="Size of the feed-forward network in the transformer layers")
+parser.add_argument("--intermediate_size", type=int, default=4096,
+                    help="Size of the feed-forward network in the transformer layers")
 parser.add_argument("--attention_heads", type=int, default=32, help="Number of attention heads")
 parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
 
 # Add the arguments for the dataset settings
 parser.add_argument("--dataset_name", type=str, default="wikimedia/wikipedia", help="Name of the dataset to use")
 parser.add_argument("--dataset_config", type=str, default="20231101.en", help="Configuration of the dataset to use")
-parser.add_argument("--dataset_path", type=str, default="/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia", help="Path to the dataset")
+parser.add_argument("--dataset_path", type=str,
+                    default="/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia", help="Path to the dataset")
 parser.add_argument("--dataset_size", type=int, default=500, help="Number of examples to use from the dataset")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
@@ -71,9 +73,12 @@ parser.add_argument("--dtype", type=str, default="bfloat16", help="Data type to 
 parser.add_argument("--learning_rate", type=float, default=8.6e-4, help="Learning rate for the AdamW optimizer")
 parser.add_argument("--lr_scheduler_type", type=str, default="linear", help="Learning rate scheduler type")
 parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
-parser.add_argument("--per_device_train_batch_size", type=int, default=14, help="Batch size per GPU/TPU core/CPU for training")
-parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of steps to accumulate gradients for")
-parser.add_argument("--warmup_ratio", type=float, default=0.10, help="Ratio of the number of warmup steps to the total number of training steps")
+parser.add_argument("--per_device_train_batch_size", type=int, default=14,
+                    help="Batch size per GPU/TPU core/CPU for training")
+parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
+                    help="Number of steps to accumulate gradients for")
+parser.add_argument("--warmup_ratio", type=float, default=0.10,
+                    help="Ratio of the number of warmup steps to the total number of training steps")
 parser.add_argument("--warmup_steps", type=int, default=0, help="Number of warmup steps")
 parser.add_argument("--weight_decay", type=float, default=0.0434, help="Weight decay for the AdamW optimizer")
 parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
@@ -180,8 +185,10 @@ lr_scheduler_types = args.lr_scheduler_types
 attention_heads_categorical = args.attention_heads_categorical  # Categorical values for the number of attention heads
 train_epochs_range = args.train_epochs_range  # Range of training epochs to use for hyperparameter search
 warmup_ratio_range = args.warmup_ratio_range  # Range of warmup ratios to use for hyperparameter search
-per_device_train_batch_size_range = args.per_device_train_batch_size_range  # Range of batch sizes to use for hyperparameter search
-gradient_accumulation_steps_categorical = args.gradient_accumulation_steps_categorical  # Categorical values for the number of gradient accumulation steps
+# Range of batch sizes to use for hyperparameter search
+per_device_train_batch_size_range = args.per_device_train_batch_size_range
+# Categorical values for the number of gradient accumulation steps
+gradient_accumulation_steps_categorical = args.gradient_accumulation_steps_categorical
 weight_decay_range = args.weight_decay_range  # Range of weight decay values to use for hyperparameter search
 max_grad_norm_range = args.max_grad_norm_range  # Range of maximum gradient norms to use for hyperparameter search
 hidden_layers_range = args.hidden_layers_range  # Range of hidden layers to use for hyperparameter search
@@ -285,9 +292,11 @@ def hp_space(trial: optuna.Trial) -> dict:
     if args.opt_train_epochs:
         space["num_train_epochs"] = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
     if args.opt_per_device_train_batch_size:
-        space["per_device_train_batch_size"] = trial.suggest_int("per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
+        space["per_device_train_batch_size"] = trial.suggest_int(
+            "per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
     if args.opt_gradient_accumulation_steps:
-        space["gradient_accumulation_steps"] = trial.suggest_categorical("gradient_accumulation_steps", gradient_accumulation_steps_categorical)
+        space["gradient_accumulation_steps"] = trial.suggest_categorical(
+            "gradient_accumulation_steps", gradient_accumulation_steps_categorical)
     if args.opt_weight_decay:
         space["weight_decay"] = trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1])
     if args.opt_max_grad_norm:
@@ -298,6 +307,7 @@ def hp_space(trial: optuna.Trial) -> dict:
         space["hidden_layers"] = trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1])
 
     return space
+
 
 # Initialize the model
 def model_init() -> PreTrainedModel:
@@ -370,7 +380,8 @@ print("Prepared dataset saved to", f"{results_dir}/dataset/")
 
 # Save the dataset configuration
 with open(f"{results_dir}/dataset_config.json", "w") as f:
-    json.dump({"dataset_name": dataset_name, "dataset_config": dataset_config, "dataset_size": dataset_size, "dataset_split": dataset_split, "stride": stride}, f, indent=2)
+    json.dump({"dataset_name": dataset_name, "dataset_config": dataset_config,
+              "dataset_size": dataset_size, "dataset_split": dataset_split, "stride": stride}, f, indent=2)
 
 # Free up some memory
 del dataset
@@ -418,7 +429,6 @@ def run_training():
     }
     with open(f"{results_dir}/hyperparameters.json", "w") as f:
         json.dump(hyperparameters, f, indent=2)
-
 
     # Train the model
     try:
@@ -476,6 +486,7 @@ def run_training():
     # metric = load_metric("bleu")
     # predictions = model.predict(test_dataset)
     # metric.compute(predictions=predictions, references=test_dataset["translation"])
+
 
 def run_study():
     study_db_path = f"{results_dir}/optuna.db"
