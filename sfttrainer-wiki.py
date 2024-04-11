@@ -294,7 +294,7 @@ def model_init() -> PreTrainedModel:
 def save_model(path: str) -> str:
     model_path = f"{path}/model"
     trainer.save_model(model_path)
-    print(f"Model saved to {model_path}")
+    # print(f"Model saved to {model_path}")
 
     return model_path
 
