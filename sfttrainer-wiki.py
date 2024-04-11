@@ -236,7 +236,7 @@ tokenizer.set_truncation_and_padding(
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
 
-model_config = dict(
+model_config = MistralConfig(
     hidden_size=hidden_size,
     intermediate_size=intermediate_size,
     num_hidden_layers=hidden_layers,
@@ -249,7 +249,6 @@ model_config = dict(
     torch_dtype=dtype,
     attn_implementation="flash_attention_2"
 )
-model_config = MistralConfig(**model_config)
 
 
 # Prepare the dataset
@@ -371,7 +370,7 @@ training_args = TrainingArguments(
     save_strategy="epoch",
     logging_dir=f"{results_dir}/logs/",
     logging_strategy="steps",
-    logging_steps=min(0.1 / num_train_epochs, 100),
+    logging_steps=0.1 / num_train_epochs,
     load_best_model_at_end=True,
     seed=seed,
     bf16=(dtype == torch.bfloat16),
