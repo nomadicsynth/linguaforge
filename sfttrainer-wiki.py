@@ -478,9 +478,12 @@ def run_training():
     # metric.compute(predictions=predictions, references=test_dataset["translation"])
 
 def run_study():
+    study_db_path = f"{results_dir}/optuna.db"
+    study_storage = f"sqlite:///{study_db_path}"
+
     optuna_kwargs = {
         "study_name": study_name,
-        "storage": f"sqlite:///{results_dir}/optuna.db"
+        "storage": study_storage,
     }
 
     # Run the hyperparameter search
@@ -492,6 +495,20 @@ def run_study():
         backend="optuna",
         **optuna_kwargs,
     )
+
+    # Load the study from the database
+    study = optuna.load_study(study_name=study_name, storage=study_storage)
+
+    # Visualize the study, saving the plots to the study directory
+    vis_dir = f"{results_dir}/study-visualizations/"
+    os.makedirs(vis_dir, exist_ok=True)
+    optuna.visualization.plot_optimization_history(study).write_html(f"{vis_dir}/optimization_history.html")
+    if len(study.trials) > 1:
+        optuna.visualization.plot_parallel_coordinate(study).write_html(f"{vis_dir}/parallel_coordinate.html")
+    optuna.visualization.plot_slice(study).write_html(f"{vis_dir}/slice.html")
+    optuna.visualization.plot_contour(study).write_html(f"{vis_dir}/contour.html")
+    optuna.visualization.plot_parallel_coordinate(study).write_html(f"{vis_dir}/parallel_coordinate.html")
+    optuna.visualization.plot_edf(study).write_html(f"{vis_dir}/edf.html")
 
     # Save the best run
     best_run_path = f"{results_dir}/best_run.json"
@@ -506,23 +523,12 @@ def run_study():
     print("Best run:")
     print(json.dumps(best_run, indent=4))
 
-    # Visualize the study, saving the plots to the study directory
-    vis_dir = f"{results_dir}/visualizations"
-    optuna.visualization.plot_optimization_history(trainer.study).write_html(
-        f"{vis_dir}/plot_optimization_history.html")
-    optuna.visualization.plot_slice(trainer.study).write_html(f"{vis_dir}/plot_slice.html")
-    optuna.visualization.plot_parallel_coordinate(trainer.study).write_html(f"{vis_dir}/plot_parallel_coordinate.html")
-    optuna.visualization.plot_param_importances(trainer.study).write_html(f"{vis_dir}/plot_param_importances.html")
-    optuna.visualization.plot_contour(trainer.study).write_html(f"{vis_dir}/plot_contour.html")
-    optuna.visualization.plot_edf(trainer.study).write_html(f"{vis_dir}/plot_edf.html")
-    optuna.visualization.plot_intermediate_values(trainer.study).write_html(f"{vis_dir}/plot_intermediate_values.html")
-    print("Study visualizations saved to", vis_dir)
-
     # Display the results
     print("Results directory:", results_dir)
     print("Best run saved to:", best_run_path)
+    print("Study saved to:", study_db_path)
+    print("Visualizations saved to:", vis_dir)
     print("Best model saved to:", best_model_path)
-    print("Study visualizations saved to:", vis_dir)
     print("Logs saved to:", f"{results_dir}/logs/")
     print()
     print("To view the training logs, run the following command:")
