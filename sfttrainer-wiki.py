@@ -69,7 +69,9 @@ parser.add_argument("--stride", type=int, default=150, help="Stride for splittin
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-parser.add_argument("--dtype", type=str, default="bfloat16", help="Data type to use for the model")
+parser.add_argument("--dtype", type=str, default="bfloat16",
+                    help="Data type to use for the model",
+                    choices=["float16", "bfloat16", "float32"])
 parser.add_argument("--learning_rate", type=float, default=8.6e-4, help="Learning rate for the AdamW optimizer")
 parser.add_argument("--lr_scheduler_type", type=str, default="linear", help="Learning rate scheduler type")
 parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
@@ -153,6 +155,8 @@ results_dir = f"{output_dir}/training-run-{timestamp}"
 # Training settings
 seed = args.seed  # Random seed for reproducibility
 dtype = args.dtype  # Data type to use for the model
+# Set dtype to the appropriate torch dtype
+dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32
 learning_rate = args.learning_rate  # Learning rate for the AdamW optimizer
 lr_scheduler_type = args.lr_scheduler_type  # Learning rate scheduler type
 num_train_epochs = args.num_train_epochs  # Number of training epochs
@@ -242,7 +246,7 @@ model_config = dict(
     use_cache=False if gradient_checkpointing else True,
     pad_token_id=tokenizer.pad_token_id,
     sliding_window=None,
-    torch_dtype=torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32,
+    torch_dtype=dtype,
     attn_implementation="flash_attention_2"
 )
 model_config = MistralConfig(**model_config)
@@ -364,10 +368,10 @@ training_args = TrainingArguments(
     logging_steps=min(0.1 / num_train_epochs, 100),
     load_best_model_at_end=True,
     seed=seed,
-    bf16=(dtype == "bfloat16"),
-    bf16_full_eval=(dtype == "bfloat16"),
-    fp16=(dtype == "float16"),
-    fp16_full_eval=(dtype == "float16"),
+    bf16=(dtype == torch.bfloat16),
+    bf16_full_eval=(dtype == torch.bfloat16),
+    fp16=(dtype == torch.float16),
+    fp16_full_eval=(dtype == torch.float16),
     report_to="none" if run_hyperparameter_search else "tensorboard",
 )
 
