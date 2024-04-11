@@ -43,7 +43,7 @@ warnings.filterwarnings(
 parser = argparse.ArgumentParser(description="Train a Mistral model on a Wikipedia dataset.")
 
 # Add the argument for the project name
-parser.add_argument("--project_name", type=str, default="mistral-wiki", help="Name of the project")
+parser.add_argument("--project_name", type=str, default="mini-mistral", help="Name of the project")
 
 # Add the argument for the results directory
 parser.add_argument("--output_dir", type=str,
@@ -59,12 +59,11 @@ parser.add_argument("--attention_heads", type=int, default=32, help="Number of a
 parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
 
 # Add the arguments for the dataset settings
-parser.add_argument("--dataset_name", type=str, default="wikimedia/wikipedia", help="Name of the dataset to use")
-parser.add_argument("--dataset_config", type=str, default="20231101.en", help="Configuration of the dataset to use")
-parser.add_argument("--dataset_path", type=str,
-                    default="/media/gronkomatic/Embiggen/ai-stuff/datasets/wikipedia", help="Path to the dataset")
-parser.add_argument("--dataset_size", type=int, default=500, help="Number of examples to use from the dataset")
-parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training")
+parser.add_argument("--dataset_name", type=str, default=None, required=True, help="Name of the dataset to use")
+parser.add_argument("--dataset_config", type=str, default="default", help="Configuration of the dataset to use")
+parser.add_argument("--dataset_path", type=str, default=None, required=True, help="Path to the dataset")
+parser.add_argument("--dataset_size", type=int, default=0, help="Number of examples to use from the dataset. Set to 0 to use the entire dataset")
+parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training if < 1, or number of examples if >= 1")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
 
 # Add the arguments for the training settings
@@ -125,6 +124,9 @@ parser.add_argument("--warmup_ratio_range", type=float, nargs=2,
 parser.add_argument("--opt_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
 parser.add_argument("--hidden_layers_range", type=int, nargs=2,
                     default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
+parser.add_argument("--additional_special_tokens", type=str, nargs="+",
+                    default=None, help="Additional special tokens to add to the tokenizer")
+parser.add_argument("--chat_template", type=str, default=None, help="Chat template for chatbot training")
 
 args = parser.parse_args()
 
@@ -231,6 +233,17 @@ tokenizer.set_truncation_and_padding(
     stride=stride,
     pad_to_multiple_of=8
 )
+
+# Add additional special tokens
+if args.additional_special_tokens:
+    tokenizer.add_special_tokens(
+        {"additional_special_tokens": args.additional_special_tokens},
+        replace_additional_special_tokens=False
+    )
+
+# Set up the chat template
+if args.chat_template:
+    tokenizer.chat_template = args.chat_template
 
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
