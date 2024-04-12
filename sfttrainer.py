@@ -390,13 +390,6 @@ def save_model(path: str) -> str:
 
     return model_path
 
-# DeepSpeed settings - uncomment to enable
-# deepspeed_config = {
-#     "zero_optimization": {
-#         "stage": 1
-#     }
-# }
-
 # TrainingArguments setup
 training_args = TrainingArguments(
     output_dir=results_dir,
@@ -424,7 +417,6 @@ training_args = TrainingArguments(
     fp16=(dtype == torch.float16),
     fp16_full_eval=(dtype == torch.float16),
     report_to="none" if run_hyperparameter_search else "tensorboard",
-    # deepspeed=deepspeed_config,
 )
 
 # Prepare the dataset
