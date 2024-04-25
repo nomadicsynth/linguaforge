@@ -65,6 +65,7 @@ parser.add_argument("--dataset_path", type=str, default=None, required=True, hel
 parser.add_argument("--dataset_size", type=int, default=0, help="Number of examples to use from the dataset. Set to 0 to use the entire dataset")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training if < 1, or number of examples if >= 1")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
+parser.add_argument("--dataset-streaming", action="store_true", help="Enable dataset streaming")
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -277,14 +278,14 @@ if args.chat_template:
 
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
-dataset = load_dataset(dataset_path, dataset_config)
+dataset = load_dataset(dataset_path, dataset_config, streaming=args.dataset_streaming)
 
 model_config = MistralConfig(
     hidden_size=hidden_size,
     intermediate_size=intermediate_size,
     num_hidden_layers=hidden_layers,
     num_attention_heads=attention_heads,
-    num_key_value_heads=1,  # Enables Multi-Query Attention (MQA)
+    num_key_value_heads=8,  # Enables Grouped-Query Attention (GQA)
     max_position_embeddings=context_length,
     use_cache=False if gradient_checkpointing else True,
     pad_token_id=tokenizer.pad_token_id,
@@ -303,9 +304,13 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     # Select the first dataset_size examples from the training set
     if dataset_size > 0:
         print("Selecting", dataset_size, "examples from the dataset...")
-        prepared_dataset = dataset["train"].select(range(dataset_size))
+        # Check if the dataset is an `IterableDataset` and select the range in the correct way
+        if dataset["train"].__class__.__name__ == "IterableDataset":
+            prepared_dataset = dataset["train"].take(dataset_size)
+        else:
+            prepared_dataset = dataset["train"].select(range(dataset_size))
     else:
-        dataset_size = len(dataset["train"])
+        dataset_size = dataset["train"].num_rows
         print("Using the entire dataset of size", dataset_size)
         prepared_dataset = dataset["train"]
 
@@ -313,7 +318,12 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     print("Splitting the dataset into training and evaluation sets...")
     print("Training set size:", round(dataset_size * dataset_split))
     print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-    prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
+    if dataset["train"].__class__.__name__ == "IterableDataset":
+        prepared_train_dataset = prepared_dataset.take(round(dataset_size * dataset_split))
+        prepared_test_dataset = prepared_dataset.skip(round(dataset_size * dataset_split))
+        prepared_dataset = DatasetDict({"train": prepared_train_dataset, "test": prepared_test_dataset})
+    else:
+        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
 
     # Return the training and evaluation datasets
     return prepared_dataset
@@ -390,6 +400,12 @@ def save_model(path: str) -> str:
 
     return model_path
 
+# Calculate the total number of training steps
+num_update_steps_per_epoch = dataset_size // (
+    per_device_train_batch_size * gradient_accumulation_steps
+)
+max_steps = num_train_epochs * num_update_steps_per_epoch
+
 # TrainingArguments setup
 training_args = TrainingArguments(
     output_dir=results_dir,
@@ -405,26 +421,30 @@ training_args = TrainingArguments(
     lr_scheduler_type=lr_scheduler_type,
     optim=optim,
     weight_decay=weight_decay,
-    evaluation_strategy="epoch",
-    save_strategy="epoch",
+    evaluation_strategy="steps",
+    eval_steps=num_update_steps_per_epoch,
+    save_strategy="steps",
+    save_steps=num_update_steps_per_epoch,
     logging_dir=f"{results_dir}/logs/",
     logging_strategy="steps",
-    logging_steps=0.1 / num_train_epochs,
+    logging_steps=num_update_steps_per_epoch // 10,
     load_best_model_at_end=True,
     seed=seed,
     bf16=(dtype == torch.bfloat16),
     bf16_full_eval=(dtype == torch.bfloat16),
     fp16=(dtype == torch.float16),
     fp16_full_eval=(dtype == torch.float16),
-    report_to="none" if run_hyperparameter_search else "tensorboard",
+    report_to="tensorboard",
+    max_steps=max_steps,
 )
 
 # Prepare the dataset
 prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split)
 
-# Save the prepared dataset
-prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
-print("Prepared dataset saved to", f"{results_dir}/dataset/")
+# Save the prepared dataset if it isn't an IterableDataset
+if not isinstance(prepared_dataset["train"], torch.utils.data.IterableDataset):
+    prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
+    print("Prepared dataset saved to", f"{results_dir}/dataset/")
 
 # Save the dataset configuration
 with open(f"{results_dir}/dataset_config.json", "w") as f:
