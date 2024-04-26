@@ -21,22 +21,27 @@ from transformers.utils import PaddingStrategy
 from trl import set_seed, SFTTrainer
 import warnings
 
+import mlflow
+
+mlflow.set_tracking_uri("http://127.0.0.1:8090")
+
+
 # Ignore the warning about gathering scalars
 warnings.filterwarnings(
-    'ignore',
-    'Was asked to gather along dimension 0, but all '
-    'input tensors were scalars; will instead unsqueeze '
-    'and return a vector.',
-    append=True
+    "ignore",
+    "Was asked to gather along dimension 0, but all "
+    "input tensors were scalars; will instead unsqueeze "
+    "and return a vector.",
+    append=True,
 )
 
 # Ignore the FutureWarning about passing arguments to Accelerator
 warnings.filterwarnings(
-    'ignore',
+    "ignore",
     "Passing the following arguments to `Accelerator` "
     "is deprecated and will be removed in version 1.0 of Accelerate:",
     category=FutureWarning,
-    append=True
+    append=True,
 )
 
 # Set up command-line arguments with argparse
@@ -221,10 +226,13 @@ print(f"Using device: {device}")
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
-tokenizer = AutoTokenizer.from_pretrained(template_model_name)
-tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
-tokenizer.padding_side = 'right'
-tokenizer.model_max_length = context_length
+tokenizer = AutoTokenizer.from_pretrained(
+    template_model_name,
+    model_max_length=context_length,
+    padding_side="right",
+    add_eos_token=True,
+)
+tokenizer.pad_token = tokenizer.eos_token  # Set pad token to end-of-sequence token
 
 # Set up truncation and padding
 tokenizer.set_truncation_and_padding(
@@ -232,7 +240,7 @@ tokenizer.set_truncation_and_padding(
     truncation_strategy=TruncationStrategy.LONGEST_FIRST,
     max_length=context_length,
     stride=stride,
-    pad_to_multiple_of=8
+    pad_to_multiple_of=8,
 )
 
 # Add assistant token to the tokenizer for the chat template because it is not in the vocabulary without a space in front of it!
@@ -259,7 +267,7 @@ for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1)
 
 tokenizer.add_special_tokens(
     {"additional_special_tokens": additional_special_tokens},
-    replace_additional_special_tokens=False
+    replace_additional_special_tokens=False,
 )
 
 if args.additional_special_tokens:
@@ -291,7 +299,7 @@ model_config = MistralConfig(
     pad_token_id=tokenizer.pad_token_id,
     sliding_window=None,
     torch_dtype=dtype,
-    attn_implementation="flash_attention_2"
+    attn_implementation="flash_attention_2",
 )
 
 
@@ -400,11 +408,14 @@ def save_model(path: str) -> str:
 
     return model_path
 
+
 # Calculate the total number of training steps
 num_update_steps_per_epoch = dataset_size // (
     per_device_train_batch_size * gradient_accumulation_steps
 )
 max_steps = num_train_epochs * num_update_steps_per_epoch
+
+mlflow.set_experiment(args.project_name)
 
 # TrainingArguments setup
 training_args = TrainingArguments(
@@ -434,7 +445,8 @@ training_args = TrainingArguments(
     bf16_full_eval=(dtype == torch.bfloat16),
     fp16=(dtype == torch.float16),
     fp16_full_eval=(dtype == torch.float16),
-    report_to="tensorboard",
+    report_to="mlflow",
+    run_name=f"{dataset_name}-{dataset_config}-{timestamp}",
     max_steps=max_steps,
 )
 
