@@ -278,7 +278,7 @@ if args.additional_special_tokens:
         print(f"{token}: {tokenizer(token)}")
 
 # Assert that the vocab size is a multiple of 8
-assert (len(tokenizer)) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code, dumbass!"
+assert (len(tokenizer)) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code."
 
 # Set up the chat template
 if args.chat_template:
