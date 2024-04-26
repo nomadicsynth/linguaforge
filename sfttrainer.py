@@ -411,7 +411,7 @@ def save_model(path: str) -> str:
 
 # Calculate the total number of training steps
 num_update_steps_per_epoch = dataset_size // (
-    per_device_train_batch_size * gradient_accumulation_steps
+    per_device_train_batch_size * gradient_accumulation_steps * torch.cuda.device_count()
 )
 max_steps = num_train_epochs * num_update_steps_per_epoch
 
