@@ -120,7 +120,10 @@ parser.add_argument("--max_grad_norm_range", type=float, nargs=2,
                     default=[0.5, 1.5], help="Range of maximum gradient norms to use for hyperparameter search")
 parser.add_argument("--opt_warmup_ratio", action="store_true", help="Optimize the warmup ratio")
 parser.add_argument("--warmup_ratio_range", type=float, nargs=2,
-                    default=[0.1, 0.2], help="Range of warmup ratios to use for hyperparameter search")
+                    default=[0.01, 0.1], help="Range of warmup ratios to use for hyperparameter search")
+parser.add_argument("--opt_warmup_steps", action="store_true", help="Optimize the warmup steps")
+parser.add_argument("--warmup_steps_range", type=int, nargs=2,
+                    default=[0, 1000], help="Range of warmup steps to use for hyperparameter search")
 parser.add_argument("--opt_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
 parser.add_argument("--hidden_layers_range", type=int, nargs=2,
                     default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
@@ -191,6 +194,7 @@ lr_scheduler_types = args.lr_scheduler_types
 attention_heads_categorical = args.attention_heads_categorical  # Categorical values for the number of attention heads
 train_epochs_range = args.train_epochs_range  # Range of training epochs to use for hyperparameter search
 warmup_ratio_range = args.warmup_ratio_range  # Range of warmup ratios to use for hyperparameter search
+warmup_steps_range = args.warmup_steps_range  # Range of warmup steps to use for hyperparameter search
 # Range of batch sizes to use for hyperparameter search
 per_device_train_batch_size_range = args.per_device_train_batch_size_range
 # Categorical values for the number of gradient accumulation steps
@@ -349,6 +353,8 @@ def hp_space(trial: optuna.Trial) -> dict:
         space["max_grad_norm"] = trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1])
     if args.opt_warmup_ratio:
         space["warmup_ratio"] = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
+    if args.opt_warmup_steps:
+        space["warmup_steps"] = trial.suggest_int("warmup_steps", warmup_steps_range[0], warmup_steps_range[1])
     if args.opt_hidden_layers:
         space["hidden_layers"] = trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1])
 
