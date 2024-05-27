@@ -32,6 +32,7 @@ parser.add_argument("--dataset_path", type=str, default=None, required=True, hel
 parser.add_argument("--dataset_size", type=int, default=0, help="Number of examples to use from the dataset. Set to 0 to use the entire dataset")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training if < 1, or number of examples if >= 1")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
+parser.add_argument("--dataset-streaming", action="store_true", help="Enable dataset streaming")
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -116,6 +117,10 @@ from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.utils import PaddingStrategy, logging
 from trl import set_seed, SFTTrainer
 import warnings
+
+import mlflow
+
+mlflow.set_tracking_uri("http://127.0.0.1:8090")
 
 # Ignore the warning about gathering scalars
 warnings.filterwarnings(
@@ -223,10 +228,13 @@ print(f"Using device: {device}")
 
 # Load tokenizer
 print(f"Loading the tokenizer from {template_model_name}...")
-tokenizer = AutoTokenizer.from_pretrained(template_model_name)
-tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
-tokenizer.padding_side = 'right'
-tokenizer.model_max_length = args.context_length
+tokenizer = AutoTokenizer.from_pretrained(
+    template_model_name,
+    model_max_length=args.context_length,
+    padding_side="right",
+    add_eos_token=True,
+)
+tokenizer.pad_token = tokenizer.eos_token  # Set pad token to end-of-sequence token
 
 # Set up truncation and padding
 tokenizer.set_truncation_and_padding(
@@ -261,7 +269,7 @@ for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1)
 
 tokenizer.add_special_tokens(
     {"additional_special_tokens": additional_special_tokens},
-    replace_additional_special_tokens=False
+    replace_additional_special_tokens=False,
 )
 
 if args.additional_special_tokens:
@@ -272,7 +280,7 @@ if args.additional_special_tokens:
         print(f"{token}: {tokenizer(token)}")
 
 # Assert that the vocab size is a multiple of 8
-assert (len(tokenizer)) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code, dumbass!"
+assert (len(tokenizer)) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code."
 
 # Set up the chat template
 if args.chat_template:
@@ -280,7 +288,7 @@ if args.chat_template:
 
 # Load the dataset
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
-dataset = load_dataset(dataset_path, dataset_config)
+dataset = load_dataset(dataset_path, dataset_config, streaming=args.dataset_streaming)
 
 
 # Prepare the dataset
@@ -292,9 +300,13 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     # Select the first dataset_size examples from the training set
     if dataset_size > 0:
         print("Selecting", dataset_size, "examples from the dataset...")
-        prepared_dataset = dataset["train"].select(range(dataset_size))
+        # Check if the dataset is an `IterableDataset` and select the range in the correct way
+        if dataset["train"].__class__.__name__ == "IterableDataset":
+            prepared_dataset = dataset["train"].take(dataset_size)
+        else:
+            prepared_dataset = dataset["train"].select(range(dataset_size))
     else:
-        dataset_size = len(dataset["train"])
+        dataset_size = dataset["train"].num_rows
         print("Using the entire dataset of size", dataset_size)
         prepared_dataset = dataset["train"]
 
@@ -302,7 +314,12 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     print("Splitting the dataset into training and evaluation sets...")
     print("Training set size:", round(dataset_size * dataset_split))
     print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-    prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
+    if dataset["train"].__class__.__name__ == "IterableDataset":
+        prepared_train_dataset = prepared_dataset.take(round(dataset_size * dataset_split))
+        prepared_test_dataset = prepared_dataset.skip(round(dataset_size * dataset_split))
+        prepared_dataset = DatasetDict({"train": prepared_train_dataset, "test": prepared_test_dataset})
+    else:
+        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
 
     # Return the training and evaluation datasets
     return prepared_dataset
@@ -416,6 +433,15 @@ def save_model(path: str) -> str:
 
     return model_path
 
+
+# Calculate the total number of training steps
+num_update_steps_per_epoch = dataset_size // (
+    per_device_train_batch_size * gradient_accumulation_steps * torch.cuda.device_count()
+)
+max_steps = num_train_epochs * num_update_steps_per_epoch
+
+mlflow.set_experiment(args.project_name)
+
 # TrainingArguments setup
 training_args = TrainingArguments(
     output_dir=results_dir,
@@ -435,22 +461,25 @@ training_args = TrainingArguments(
     save_strategy="epoch",
     logging_dir=f"{results_dir}/logs/",
     logging_strategy="steps",
-    logging_steps=0.1 / num_train_epochs,
+    logging_steps=num_update_steps_per_epoch // 10,
     load_best_model_at_end=True,
     seed=seed,
     bf16=(args.dtype == torch.bfloat16),
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
     fp16_full_eval=(args.dtype == torch.float16),
-    report_to="none" if run_hyperparameter_search else "tensorboard",
+    report_to="mlflow",
+    run_name=f"{dataset_name}-{dataset_config}-{timestamp}",
+    max_steps=max_steps,
 )
 
 # Prepare the dataset
 prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split)
 
-# Save the prepared dataset
-prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
-print("Prepared dataset saved to", f"{results_dir}/dataset/")
+# Save the prepared dataset if it isn't an IterableDataset
+if not isinstance(prepared_dataset["train"], torch.utils.data.IterableDataset):
+    prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
+    print("Prepared dataset saved to", f"{results_dir}/dataset/")
 
 # Save the dataset configuration
 with open(f"{results_dir}/dataset_config.json", "w") as f:
