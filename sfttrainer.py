@@ -4,40 +4,6 @@ import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
 import argparse
-from datasets import load_dataset, DatasetDict
-import json
-import optuna
-import time
-import torch
-from transformers import (
-    AutoTokenizer,
-    MistralConfig,
-    MistralForCausalLM,
-    PreTrainedModel,
-    TrainingArguments,
-)
-from transformers.tokenization_utils_base import TruncationStrategy
-from transformers.utils import PaddingStrategy
-from trl import set_seed, SFTTrainer
-import warnings
-
-# Ignore the warning about gathering scalars
-warnings.filterwarnings(
-    'ignore',
-    'Was asked to gather along dimension 0, but all '
-    'input tensors were scalars; will instead unsqueeze '
-    'and return a vector.',
-    append=True
-)
-
-# Ignore the FutureWarning about passing arguments to Accelerator
-warnings.filterwarnings(
-    'ignore',
-    "Passing the following arguments to `Accelerator` "
-    "is deprecated and will be removed in version 1.0 of Accelerate:",
-    category=FutureWarning,
-    append=True
-)
 
 # Set up command-line arguments with argparse
 parser = argparse.ArgumentParser(description="Train a Mistral model on a Wikipedia dataset.")
@@ -56,6 +22,7 @@ parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the h
 parser.add_argument("--intermediate_size", type=int, default=4096,
                     help="Size of the feed-forward network in the transformer layers")
 parser.add_argument("--attention_heads", type=int, default=32, help="Number of attention heads")
+parser.add_argument("--num_key_value_heads", type=int, default=8, help="Number of key-value heads")
 parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
 
 # Add the arguments for the dataset settings
@@ -133,18 +100,49 @@ parser.add_argument("--chat_template", type=str, default=None, help="Chat templa
 
 args = parser.parse_args()
 
+from datasets import load_dataset, DatasetDict
+import json
+import optuna
+import time
+import torch
+from transformers import (
+    AutoTokenizer,
+    MistralConfig,
+    MistralForCausalLM,
+    PreTrainedModel,
+    TrainingArguments,
+)
+from transformers.tokenization_utils_base import TruncationStrategy
+from transformers.utils import PaddingStrategy, logging
+from trl import set_seed, SFTTrainer
+import warnings
+
+# Ignore the warning about gathering scalars
+warnings.filterwarnings(
+    "ignore",
+    "Was asked to gather along dimension 0, but all "
+    "input tensors were scalars; will instead unsqueeze "
+    "and return a vector.",
+    append=True,
+)
+
+# Ignore the FutureWarning about passing arguments to Accelerator
+warnings.filterwarnings(
+    "ignore",
+    "Passing the following arguments to `Accelerator` "
+    "is deprecated and will be removed in version 1.0 of Accelerate:",
+    category=FutureWarning,
+    append=True,
+)
+
+# Get the logger
+logger = logging.get_logger(__name__)
+
 timestamp = time.strftime("%Y%m%d-%H%M%S")
 output_dir = args.output_dir + "/" + args.project_name
 
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = args.template_model_name
-
-# Model settings
-hidden_layers = args.hidden_layers  # Number of transformer layers
-hidden_size = args.hidden_size  # Size of the hidden states in the transformer layers
-intermediate_size = args.intermediate_size  # Size of the feed-forward network in the transformer layers
-attention_heads = args.attention_heads  # Number of attention heads
-context_length = args.context_length  # Maximum sequence length
 
 # Dataset settings
 dataset_name = args.dataset_name  # Name of the dataset to use
@@ -159,9 +157,12 @@ results_dir = f"{output_dir}/training-run-{timestamp}"
 
 # Training settings
 seed = args.seed  # Random seed for reproducibility
-dtype = args.dtype  # Data type to use for the model
 # Set dtype to the appropriate torch dtype
-dtype = torch.bfloat16 if dtype == "bfloat16" else torch.float16 if dtype == "float16" else torch.float32
+args.dtype = (
+    torch.bfloat16 if args.dtype == "bfloat16"
+    else torch.float16 if args.dtype == "float16"
+    else torch.float32
+)
 learning_rate = args.learning_rate  # Learning rate for the AdamW optimizer
 lr_scheduler_type = args.lr_scheduler_type  # Learning rate scheduler type
 num_train_epochs = args.num_train_epochs  # Number of training epochs
@@ -169,7 +170,6 @@ per_device_train_batch_size = args.per_device_train_batch_size  # Batch size per
 gradient_accumulation_steps = args.gradient_accumulation_steps  # Number of steps to accumulate gradients for
 warmup_ratio = args.warmup_ratio  # Ratio of the number of warmup steps to the total number of training steps
 warmup_steps = args.warmup_steps  # Number of warmup steps
-weight_decay = args.weight_decay  # Weight decay for the AdamW optimizer
 max_grad_norm = args.max_grad_norm  # Maximum gradient norm
 gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpointing
 # Choose the optimizer to use
@@ -180,7 +180,6 @@ gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpoi
 # 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
 # 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
 # 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
-optim = args.optim
 
 # Optuna study settings
 run_hyperparameter_search = args.run_hyperparameter_search  # Enable hyperparameter search
@@ -227,15 +226,15 @@ print(f"Loading the tokenizer from {template_model_name}...")
 tokenizer = AutoTokenizer.from_pretrained(template_model_name)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 tokenizer.padding_side = 'right'
-tokenizer.model_max_length = context_length
+tokenizer.model_max_length = args.context_length
 
 # Set up truncation and padding
 tokenizer.set_truncation_and_padding(
     padding_strategy=PaddingStrategy.LONGEST,
     truncation_strategy=TruncationStrategy.LONGEST_FIRST,
-    max_length=context_length,
+    max_length=args.context_length,
     stride=stride,
-    pad_to_multiple_of=8
+    pad_to_multiple_of=8,
 )
 
 # Add assistant token to the tokenizer for the chat template because it is not in the vocabulary without a space in front of it!
@@ -283,20 +282,6 @@ if args.chat_template:
 print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
 
-model_config = MistralConfig(
-    hidden_size=hidden_size,
-    intermediate_size=intermediate_size,
-    num_hidden_layers=hidden_layers,
-    num_attention_heads=attention_heads,
-    num_key_value_heads=1,  # Enables Multi-Query Attention (MQA)
-    max_position_embeddings=context_length,
-    use_cache=False if gradient_checkpointing else True,
-    pad_token_id=tokenizer.pad_token_id,
-    sliding_window=None,
-    torch_dtype=dtype,
-    attn_implementation="flash_attention_2"
-)
-
 
 # Prepare the dataset
 def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool = False) -> DatasetDict:
@@ -338,7 +323,7 @@ def hp_space(trial: optuna.Trial) -> dict:
     if args.opt_lr_scheduler_type:
         space["lr_scheduler_type"] = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
     if args.opt_attention_heads:
-        space["attention_heads"] = trial.suggest_categorical("attention_heads", attention_heads_categorical)
+        space["num_attention_heads"] = trial.suggest_categorical("num_attention_heads", attention_heads_categorical)
     if args.opt_train_epochs:
         space["num_train_epochs"] = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
     if args.opt_per_device_train_batch_size:
@@ -364,6 +349,36 @@ def hp_space(trial: optuna.Trial) -> dict:
 # Initialize the model
 def model_init() -> PreTrainedModel:
     print("Initialising the model...")
+
+    # Set the initial model configuration
+    model_config = dict(
+        hidden_size=args.hidden_size,
+        intermediate_size=args.intermediate_size,
+        num_hidden_layers=args.hidden_layers,
+        num_attention_heads=args.attention_heads,
+        num_key_value_heads=args.num_key_value_heads,
+        max_position_embeddings=args.context_length,
+        use_cache=False if args.gradient_checkpointing else True,
+        pad_token_id=tokenizer.pad_token_id,
+        sliding_window=None,
+        torch_dtype=args.dtype,
+        attn_implementation="flash_attention_2",
+    )
+
+    # If this is a trial, set the hyperparameters from the trial
+    if trial is not None:
+        space = trial.params
+
+        if "dtype" in space:
+            model_config["torch_dtype"] = space["dtype"]
+        if "num_attention_heads" in space:
+            model_config["num_attention_heads"] = space["num_attention_heads"]
+        if "hidden_layers" in space:
+            model_config["num_hidden_layers"] = space["hidden_layers"]
+        if "hidden_size" in space:
+            model_config["hidden_size"] = space["hidden_size"]
+
+    model_config = MistralConfig(**model_config)
     model = MistralForCausalLM(model_config)
 
     # Resize the token embeddings to match the tokenizer
@@ -409,8 +424,8 @@ training_args = TrainingArguments(
     warmup_steps=warmup_steps,
     learning_rate=learning_rate,
     lr_scheduler_type=lr_scheduler_type,
-    optim=optim,
-    weight_decay=weight_decay,
+    optim=args.optim,
+    weight_decay=args.weight_decay,
     eval_strategy="epoch",
     save_strategy="epoch",
     logging_dir=f"{results_dir}/logs/",
@@ -418,10 +433,10 @@ training_args = TrainingArguments(
     logging_steps=0.1 / num_train_epochs,
     load_best_model_at_end=True,
     seed=seed,
-    bf16=(dtype == torch.bfloat16),
-    bf16_full_eval=(dtype == torch.bfloat16),
-    fp16=(dtype == torch.float16),
-    fp16_full_eval=(dtype == torch.float16),
+    bf16=(args.dtype == torch.bfloat16),
+    bf16_full_eval=(args.dtype == torch.bfloat16),
+    fp16=(args.dtype == torch.float16),
+    fp16_full_eval=(args.dtype == torch.float16),
     report_to="none" if run_hyperparameter_search else "tensorboard",
 )
 
@@ -442,14 +457,14 @@ del dataset
 
 # Initialize the trainer
 trainer = SFTTrainer(
-    model_init=model_init,
     args=training_args,
     train_dataset=prepared_dataset["train"],
     eval_dataset=prepared_dataset["test"],
+    tokenizer=tokenizer,
+    model_init=model_init,
     dataset_text_field="text",
     packing=True,
-    max_seq_length=context_length,
-    tokenizer=tokenizer,
+    max_seq_length=args.context_length,
 )
 
 
@@ -461,11 +476,11 @@ def run_training():
     print(f"  Per-device train batch size: {per_device_train_batch_size}")
     print(f"  Epochs: {num_train_epochs}")
     print(f"  Warmup ratio: {warmup_ratio}")
-    print(f"  Attention heads: {attention_heads}")
+    print(f"  Attention heads: {args.attention_heads}")
     print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
-    print(f"  Weight decay: {weight_decay}")
+    print(f"  Weight decay: {args.weight_decay}")
     print(f"  Results directory: {results_dir}")
-    print(f"  Optimizer: {optim}")
+    print(f"  Optimizer: {args.optim}")
     print()
 
     # Save the hyperparameters to a file
@@ -475,11 +490,11 @@ def run_training():
         "per_device_train_batch_size": per_device_train_batch_size,
         "num_train_epochs": num_train_epochs,
         "warmup_ratio": warmup_ratio,
-        "attention_heads": attention_heads,
+        "attention_heads": args.attention_heads,
         "gradient_accumulation_steps": gradient_accumulation_steps,
-        "weight_decay": weight_decay,
+        "weight_decay": args.weight_decay,
         "results_dir": results_dir,
-        "optim": optim,
+        "optim": args.optim,
     }
     with open(f"{results_dir}/hyperparameters.json", "w") as f:
         json.dump(hyperparameters, f, indent=2)
