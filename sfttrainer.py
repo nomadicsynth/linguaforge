@@ -347,7 +347,12 @@ def hp_space(trial: optuna.Trial) -> dict:
 
 
 # Initialize the model
-def model_init() -> PreTrainedModel:
+def model_init(trial: optuna.Trial) -> PreTrainedModel:
+    if trial is not None:
+        print("\033[93m" + f"Trial {trial.number}" + "\033[0m")
+        # Print the hyperparameters as a single-line JSON string
+        print("\033[93m" + json.dumps(trial.params) + "\033[0m")
+
     print("Initialising the model...")
 
     # Set the initial model configuration
@@ -381,14 +386,14 @@ def model_init() -> PreTrainedModel:
     model_config = MistralConfig(**model_config)
     model = MistralForCausalLM(model_config)
 
-    # Resize the token embeddings to match the tokenizer
-    model.resize_token_embeddings(len(tokenizer))
-
     # If the dtype is float16 or bfloat16, convert the model to that dtype
     if model_config.torch_dtype == "float16" or model_config.torch_dtype == torch.float16:
         model = model.half()
     elif model_config.torch_dtype == "bfloat16" or model_config.torch_dtype == torch.bfloat16:
         model = model.to(torch.bfloat16)
+
+    # Resize the token embeddings to match the tokenizer
+    model.resize_token_embeddings(len(tokenizer))
 
     # Move the model to the device
     model = model.to(device)
@@ -558,6 +563,12 @@ def run_training():
 
 
 def run_study():
+    """
+    Run a hyperparameter optimization study using Optuna.
+
+    This function sets up the study, runs the hyperparameter search, loads the study results,
+    visualizes the study results, and saves the best run.
+    """
     study_db_path = f"{results_dir}/optuna.db"
     study_storage = f"sqlite:///{study_db_path}"
 
