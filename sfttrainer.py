@@ -68,7 +68,10 @@ parser.add_argument("--lr_scheduler_types", type=str, nargs="+", default=[
                     "linear", "cosine", "cosine_with_restarts", "polynomial"], help="Categorical values for the learning rate scheduler type")
 parser.add_argument("--opt_attention_heads", action="store_true", help="Optimize the number of attention heads")
 parser.add_argument("--attention_heads_categorical", type=int, nargs="+",
-                    default=[8, 16, 32, 64], help="Categorical values for the number of attention heads")
+                    default=[8, 16, 32], help="Categorical values for the number of attention heads")
+parser.add_argument("--opt_num_key_value_heads", action="store_true", help="Optimize the number of key-value heads")
+parser.add_argument("--num_key_value_heads_categorical", type=int, nargs="+",
+                    default=[1, 4, 8, 16, 32], help="Categorical values for the number of key-value heads")
 parser.add_argument("--opt_train_epochs", action="store_true", help="Optimize the number of training epochs")
 parser.add_argument("--train_epochs_range", type=int, nargs=2,
                     default=[1, 7], help="Range of training epochs to use for hyperparameter search")
@@ -324,6 +327,8 @@ def hp_space(trial: optuna.Trial) -> dict:
         space["lr_scheduler_type"] = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
     if args.opt_attention_heads:
         space["num_attention_heads"] = trial.suggest_categorical("num_attention_heads", attention_heads_categorical)
+    if args.opt_num_key_value_heads:
+        space["num_key_value_heads"] = trial.suggest_categorical("num_key_value_heads", args.num_key_value_heads_categorical)
     if args.opt_train_epochs:
         space["num_train_epochs"] = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
     if args.opt_per_device_train_batch_size:
@@ -378,6 +383,8 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
             model_config["torch_dtype"] = space["dtype"]
         if "num_attention_heads" in space:
             model_config["num_attention_heads"] = space["num_attention_heads"]
+        if "num_key_value_heads" in space:
+            model_config["num_key_value_heads"] = space["num_key_value_heads"]
         if "hidden_layers" in space:
             model_config["num_hidden_layers"] = space["hidden_layers"]
         if "hidden_size" in space:
