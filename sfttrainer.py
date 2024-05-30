@@ -42,8 +42,10 @@ parser.add_argument("--dtype", type=str, default="bfloat16",
 parser.add_argument("--learning_rate", type=float, default=8.6e-4, help="Learning rate for the AdamW optimizer")
 parser.add_argument("--lr_scheduler_type", type=str, default="linear", help="Learning rate scheduler type")
 parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
-parser.add_argument("--per_device_train_batch_size", type=int, default=14,
+parser.add_argument("--per_device_train_batch_size", type=int, default=4,
                     help="Batch size per GPU/TPU core/CPU for training")
+parser.add_argument("--per_device_eval_batch_size", type=int, default=4,
+                    help="Batch size per GPU/TPU core/CPU for evaluation")
 parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                     help="Number of steps to accumulate gradients for")
 parser.add_argument("--warmup_ratio", type=float, default=0.10,
@@ -426,8 +428,8 @@ def save_model(path: str) -> str:
 training_args = TrainingArguments(
     output_dir=results_dir,
     num_train_epochs=num_train_epochs,
-    per_device_train_batch_size=per_device_train_batch_size,
-    per_device_eval_batch_size=per_device_train_batch_size,
+    per_device_train_batch_size=args.per_device_train_batch_size,
+    per_device_eval_batch_size=args.per_device_eval_batch_size,
     gradient_accumulation_steps=gradient_accumulation_steps,
     gradient_checkpointing=gradient_checkpointing,
     max_grad_norm=max_grad_norm,
