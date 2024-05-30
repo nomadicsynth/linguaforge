@@ -32,6 +32,7 @@ parser.add_argument("--dataset_path", type=str, default=None, required=True, hel
 parser.add_argument("--dataset_size", type=int, default=0, help="Number of examples to use from the dataset. Set to 0 to use the entire dataset")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training if < 1, or number of examples if >= 1")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
+parser.add_argument("--shuffle", action="store_true", help="Shuffle the dataset")
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -290,8 +291,7 @@ dataset = load_dataset(dataset_path, dataset_config)
 def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool = False) -> DatasetDict:
     print("Preparing the dataset...")
     prepared_dataset = None
-    if shuffle:
-        dataset["train"] = dataset["train"].shuffle()
+
     # Select the first dataset_size examples from the training set
     if dataset_size > 0:
         print("Selecting", dataset_size, "examples from the dataset...")
@@ -305,7 +305,7 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     print("Splitting the dataset into training and evaluation sets...")
     print("Training set size:", round(dataset_size * dataset_split))
     print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-    prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed)
+    prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed, shuffle=shuffle)
 
     # Return the training and evaluation datasets
     return prepared_dataset
