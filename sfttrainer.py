@@ -186,7 +186,6 @@ gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpoi
 # 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
 
 # Optuna study settings
-run_hyperparameter_search = args.run_hyperparameter_search  # Enable hyperparameter search
 study_name = args.study_name  # Name of the Optuna study
 study_dir = f"{output_dir}/optuna-study-{timestamp}"
 n_trials = args.n_trials  # Number of hyperparameter search trials
@@ -207,7 +206,7 @@ max_grad_norm_range = args.max_grad_norm_range  # Range of maximum gradient norm
 hidden_layers_range = args.hidden_layers_range  # Range of hidden layers to use for hyperparameter search
 
 # Set the final output directory
-if run_hyperparameter_search:
+if args.run_hyperparameter_search:
     results_dir = study_dir
 
 # Set seed for reproducibility
@@ -636,7 +635,7 @@ def run_study():
 
 
 # Run whatever is needed
-if run_hyperparameter_search:
+if args.run_hyperparameter_search:
     run_study()
 else:
     run_training()
