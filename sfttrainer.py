@@ -13,7 +13,7 @@ parser.add_argument("--project_name", type=str, default="mini-mistral", help="Na
 
 # Add the argument for the results directory
 parser.add_argument("--output_dir", type=str,
-                    default=f"/media/gronkomatic/Embiggen/ai-stuff/training-results", help="Directory to save the results")
+                    default=f"/mnt/ai-stuff-fast/training-results", help="Directory to save the results")
 
 # Add the arguments for the model settings
 parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
