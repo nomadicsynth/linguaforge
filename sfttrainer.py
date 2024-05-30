@@ -443,11 +443,12 @@ training_args = TrainingArguments(
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
     fp16_full_eval=(args.dtype == torch.float16),
-    report_to="none" if run_hyperparameter_search else "tensorboard",
+    report_to="none" if args.run_hyperparameter_search else "tensorboard",
+    remove_unused_columns=True,
 )
 
 # Prepare the dataset
-prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split)
+prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split, args.shuffle)
 
 # Save the prepared dataset
 prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
