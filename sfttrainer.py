@@ -109,6 +109,7 @@ parser.add_argument("--chat_template", type=str, default=None, help="Chat templa
 args = parser.parse_args()
 
 from datasets import load_dataset, DatasetDict
+import evaluate
 import json
 import optuna
 import time
@@ -316,6 +317,40 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     # Return the training and evaluation datasets
     return prepared_dataset
 
+# Load the evaluation metrics
+metric_perplexity = evaluate.load("perplexity")
+metric_accuracy = evaluate.load("accuracy")
+metric_f1 = evaluate.load("f1")
+metric_rouge = evaluate.load("rouge")
+metric_bleu = evaluate.load("bleu")
+
+# Compute the evaluation metrics
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    predictions = logits.argmax(dim=-1)
+    
+    # Convert logits to predicted token ids
+    preds = predictions.detach().cpu().numpy()
+    labels = labels.detach().cpu().numpy()
+    
+    # Calculate the metrics
+    perplexity = metric_perplexity.compute(predictions=preds, references=labels)
+    accuracy = metric_accuracy.compute(predictions=preds, references=labels)
+    f1 = metric_f1.compute(predictions=preds, references=labels, average='weighted')
+    rouge = metric_rouge.compute(predictions=preds, references=labels)
+    bleu = metric_bleu.compute(predictions=preds, references=labels)
+    
+    return {
+        'loss': eval_pred.loss,
+        'perplexity': perplexity,
+        'accuracy': accuracy['accuracy'],
+        'f1': f1['f1'],
+        'rouge1': rouge['rouge1'].mid.fmeasure,
+        'rouge2': rouge['rouge2'].mid.fmeasure,
+        'rougeL': rouge['rougeL'].mid.fmeasure,
+        'bleu': bleu['bleu']
+    }
+
 
 # Hyperparameter search objective function
 def compute_objective(metrics: dict) -> float:
@@ -483,6 +518,7 @@ trainer = SFTTrainer(
     eval_dataset=prepared_dataset["test"],
     tokenizer=tokenizer,
     model_init=model_init,
+    compute_metrics=compute_metrics,
     dataset_text_field="text",
     packing=True,
     max_seq_length=args.context_length,
