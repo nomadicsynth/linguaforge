@@ -17,6 +17,8 @@ parser.add_argument("--output_dir", type=str,
 
 # Add the arguments for the model settings
 parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
+# Resume from checkpoint is a boolean argument. If it is set, the model will resume training from the last checkpoint.
+parser.add_argument("--resume_from_checkpoint", action="store_true", help="Resume training from the last checkpoint")
 parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
 parser.add_argument("--intermediate_size", type=int, default=4096,
@@ -159,7 +161,10 @@ dataset_split = args.dataset_split  # Percentage of examples to use for training
 stride = args.stride  # Stride for splitting the input into multiple sequences
 
 # Directory to save the results
-results_dir = f"{output_dir}/training-run-{timestamp}"
+if args.resume_from_checkpoint:
+    results_dir = output_dir  # Results path is passed on the command line when resuming from a checkpoint
+else:
+    results_dir = f"{output_dir}/training-run-{timestamp}"
 
 # Training settings
 seed = args.seed  # Random seed for reproducibility
@@ -517,7 +522,7 @@ def run_training():
 
     # Train the model
     try:
-        trainer.train()
+        trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     except KeyboardInterrupt:
         # Save the training progress
         print("\nSaving the training progress...")
