@@ -318,37 +318,33 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
     return prepared_dataset
 
 # Load the evaluation metrics
-metric_perplexity = evaluate.load("perplexity")
-metric_accuracy = evaluate.load("accuracy")
-metric_f1 = evaluate.load("f1")
-metric_rouge = evaluate.load("rouge")
-metric_bleu = evaluate.load("bleu")
+# metric_perplexity = evaluate.load("perplexity")
+# metric_accuracy = evaluate.load("accuracy")
+# metric_f1 = evaluate.load("f1")
+# metric_rouge = evaluate.load("rouge")
+# metric_bleu = evaluate.load("bleu")
 
 # Compute the evaluation metrics
 def compute_metrics(eval_pred):
-    logits, labels = eval_pred
-    predictions = logits.argmax(dim=-1)
-    
-    # Convert logits to predicted token ids
-    preds = predictions.detach().cpu().numpy()
-    labels = labels.detach().cpu().numpy()
+    # logits, labels = eval_pred
+    # predictions = logits.argmax(dim=-1)
     
     # Calculate the metrics
-    perplexity = metric_perplexity.compute(predictions=preds, references=labels)
-    accuracy = metric_accuracy.compute(predictions=preds, references=labels)
-    f1 = metric_f1.compute(predictions=preds, references=labels, average='weighted')
-    rouge = metric_rouge.compute(predictions=preds, references=labels)
-    bleu = metric_bleu.compute(predictions=preds, references=labels)
+    # perplexity = metric_perplexity.compute(predictions=predictions, references=labels)
+    # accuracy = metric_accuracy.compute(predictions=predictions, references=labels)
+    # f1 = metric_f1.compute(predictions=predictions, references=labels, average='weighted')
+    # rouge = metric_rouge.compute(predictions=predictions, references=labels)
+    # bleu = metric_bleu.compute(predictions=predictions, references=labels)
     
     return {
-        'loss': eval_pred.loss,
-        'perplexity': perplexity,
-        'accuracy': accuracy['accuracy'],
-        'f1': f1['f1'],
-        'rouge1': rouge['rouge1'].mid.fmeasure,
-        'rouge2': rouge['rouge2'].mid.fmeasure,
-        'rougeL': rouge['rougeL'].mid.fmeasure,
-        'bleu': bleu['bleu']
+        'eval_loss': eval_pred.loss,
+        # 'perplexity': perplexity,
+        # 'accuracy': accuracy['accuracy'],
+        # 'f1': f1['f1'],
+        # 'rouge1': rouge['rouge1'].mid.fmeasure,
+        # 'rouge2': rouge['rouge2'].mid.fmeasure,
+        # 'rougeL': rouge['rougeL'].mid.fmeasure,
+        # 'bleu': bleu['bleu']
     }
 
 
@@ -500,13 +496,13 @@ training_args = TrainingArguments(
 prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split, args.shuffle)
 
 # Save the prepared dataset
-prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
-print("Prepared dataset saved to", f"{results_dir}/dataset/")
+# prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
+# print("Prepared dataset saved to", f"{results_dir}/dataset/")
 
 # Save the dataset configuration
 with open(f"{results_dir}/dataset_config.json", "w") as f:
     json.dump({"dataset_name": dataset_name, "dataset_config": dataset_config,
-              "dataset_size": dataset_size, "dataset_split": dataset_split, "stride": stride}, f, indent=2)
+              "dataset_size": len(prepared_dataset), "dataset_split": dataset_split, "stride": stride}, f, indent=2)
 
 # Free up some memory
 del dataset
@@ -518,7 +514,7 @@ trainer = SFTTrainer(
     eval_dataset=prepared_dataset["test"],
     tokenizer=tokenizer,
     model_init=model_init,
-    compute_metrics=compute_metrics,
+    # compute_metrics=compute_metrics,
     dataset_text_field="text",
     packing=True,
     max_seq_length=args.context_length,
