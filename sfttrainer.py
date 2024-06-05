@@ -148,7 +148,6 @@ warnings.filterwarnings(
 logger = logging.get_logger(__name__)
 
 timestamp = time.strftime("%Y%m%d-%H%M%S")
-output_dir = args.output_dir + "/" + args.project_name
 
 # Use Mistral-7B-v0.1 as a template for the model settings
 template_model_name = args.template_model_name
@@ -163,9 +162,10 @@ stride = args.stride  # Stride for splitting the input into multiple sequences
 
 # Directory to save the results
 if args.resume_from_checkpoint:
-    results_dir = output_dir  # Results path is passed on the command line when resuming from a checkpoint
+    results_dir = args.output_dir  # Results path is passed on the command line when resuming from a checkpoint
 else:
-    results_dir = f"{output_dir}/training-run-{timestamp}"
+    args.output_dir = args.output_dir + "/" + args.project_name
+    results_dir = f"{args.output_dir}/training-run-{timestamp}"
 
 # Training settings
 seed = args.seed  # Random seed for reproducibility
@@ -195,7 +195,7 @@ gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpoi
 
 # Optuna study settings
 study_name = args.study_name  # Name of the Optuna study
-study_dir = f"{output_dir}/optuna-study-{timestamp}"
+study_dir = f"{args.output_dir}/optuna-study-{timestamp}"
 n_trials = args.n_trials  # Number of hyperparameter search trials
 lr_range = args.lr_range  # Range of learning rates to use for hyperparameter search
 dtype_categorical = args.dtype_categorical  # Categorical values for the data type to use
@@ -565,6 +565,7 @@ def run_training():
         save_model(results_dir)
         print("Training progress saved.")
         print("Training interrupted by user.")
+        print(f"Resume training by running the following command:\npython sfttrainer.py --output_dir {results_dir} --resume_from_checkpoint")
         exit()
 
     print("Training complete!")
