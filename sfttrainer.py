@@ -532,7 +532,10 @@ def run_training():
     print(f"  Learning rate scheduler: {lr_scheduler_type}")
     print(f"  Per-device train batch size: {per_device_train_batch_size}")
     print(f"  Epochs: {num_train_epochs}")
-    print(f"  Warmup ratio: {warmup_ratio}")
+    if warmup_steps > 0:
+        print(f"  Warmup steps: {warmup_steps}")
+    else:
+        print(f"  Warmup ratio: {warmup_ratio}")
     print(f"  Attention heads: {args.attention_heads}")
     print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
     print(f"  Weight decay: {args.weight_decay}")
@@ -546,7 +549,8 @@ def run_training():
         "lr_scheduler_type": lr_scheduler_type,
         "per_device_train_batch_size": per_device_train_batch_size,
         "num_train_epochs": num_train_epochs,
-        "warmup_ratio": warmup_ratio,
+        "warmup_ratio": warmup_ratio if warmup_steps == 0 else 0,
+        "warmup_steps": warmup_steps,
         "attention_heads": args.attention_heads,
         "gradient_accumulation_steps": gradient_accumulation_steps,
         "weight_decay": args.weight_decay,
