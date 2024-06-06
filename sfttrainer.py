@@ -15,6 +15,9 @@ parser.add_argument("--project_name", type=str, default="mini-mistral", help="Na
 parser.add_argument("--output_dir", type=str,
                     default=f"/mnt/ai-stuff-fast/training-results", help="Directory to save the results")
 
+# Add the argument for the number of CPUs
+parser.add_argument("--num_cpus", type=int, default=None, help="Number of CPUs to use")
+
 # Add the arguments for the model settings
 parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
 # Resume from checkpoint is a boolean argument. If it is set, the model will resume training from the last checkpoint.
@@ -44,6 +47,7 @@ parser.add_argument("--dtype", type=str, default="bfloat16",
 parser.add_argument("--learning_rate", type=float, default=8.6e-4, help="Learning rate for the AdamW optimizer")
 parser.add_argument("--lr_scheduler_type", type=str, default="linear", help="Learning rate scheduler type")
 parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
+parser.add_argument("--auto_find_batch_size", action="store_true", help="Automatically find the batch size")
 parser.add_argument("--per_device_train_batch_size", type=int, default=4,
                     help="Batch size per GPU/TPU core/CPU for training")
 parser.add_argument("--per_device_eval_batch_size", type=int, default=4,
@@ -119,11 +123,10 @@ from transformers import (
     MistralConfig,
     MistralForCausalLM,
     PreTrainedModel,
-    TrainingArguments,
 )
 from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.utils import PaddingStrategy, logging
-from trl import set_seed, SFTTrainer
+from trl import set_seed, SFTTrainer, SFTConfig
 import warnings
 
 # Ignore the warning about gathering scalars
@@ -461,9 +464,10 @@ def save_model(path: str) -> str:
     return model_path
 
 # TrainingArguments setup
-training_args = TrainingArguments(
+training_args = SFTConfig(
     output_dir=results_dir,
     num_train_epochs=num_train_epochs,
+    auto_find_batch_size=args.auto_find_batch_size,
     per_device_train_batch_size=args.per_device_train_batch_size,
     per_device_eval_batch_size=args.per_device_eval_batch_size,
     gradient_accumulation_steps=gradient_accumulation_steps,
@@ -476,20 +480,28 @@ training_args = TrainingArguments(
     optim=args.optim,
     weight_decay=args.weight_decay,
     eval_strategy="epoch" if args.run_hyperparameter_search else "steps",
-    eval_steps=(1 / 6) / num_train_epochs,
+    eval_steps=(1 / 4) / num_train_epochs,
     save_strategy="epoch" if args.run_hyperparameter_search else "steps",
-    save_steps=(1 / 6) / num_train_epochs,
+    save_steps=(1 / 4) / num_train_epochs,
     logging_dir=f"{results_dir}/logs/",
     logging_strategy="steps",
     logging_steps=0.1 / num_train_epochs if args.run_hyperparameter_search else 1000,
     load_best_model_at_end=True,
     seed=seed,
+    data_seed=seed,
     bf16=(args.dtype == torch.bfloat16),
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
     fp16_full_eval=(args.dtype == torch.float16),
     report_to="none" if args.run_hyperparameter_search else "tensorboard",
     remove_unused_columns=True,
+    dataset_text_field="text",
+    packing=True,
+    max_seq_length=args.context_length,
+    dataset_num_proc=args.num_cpus // 2,
+    dataloader_num_workers=args.num_cpus // 2,
+    accelerator_config={"split_batches": True},
+    ddp_find_unused_parameters=False,
 )
 
 # Prepare the dataset
