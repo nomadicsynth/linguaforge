@@ -3,6 +3,10 @@ import os
 # Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
 
+# Print the local rank
+is_main_process = os.environ.get("LOCAL_RANK", 0) == "0"
+print("Local rank:", os.environ.get("LOCAL_RANK", -1))
+
 import argparse
 
 # Set up command-line arguments with argparse
@@ -147,8 +151,18 @@ warnings.filterwarnings(
     append=True,
 )
 
+# Function that prints to the console only if the process is the main process
+def print_if_main_process(*args, **kwargs):
+    global is_main_process
+    if is_main_process:
+        print(*args, **kwargs)
+
 # Get the logger
 logger = logging.get_logger(__name__)
+
+# Disable the logging if not the main process
+if not is_main_process:
+    logger.setLevel(logging.ERROR)
 
 timestamp = time.strftime("%Y%m%d-%H%M%S")
 
@@ -236,7 +250,7 @@ if not os.path.exists(results_dir):
 print(f"Using device: {device}")
 
 # Load tokenizer
-print(f"Loading the tokenizer from {template_model_name}...")
+print_if_main_process(f"Loading the tokenizer from {template_model_name}...")
 tokenizer = AutoTokenizer.from_pretrained(template_model_name)
 tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
 tokenizer.padding_side = 'right'
@@ -253,7 +267,7 @@ tokenizer.set_truncation_and_padding(
 
 # Add assistant token to the tokenizer for the chat template because it is not in the vocabulary without a space in front of it!
 tokenizer.add_tokens(["assistant"])
-print(f"'assistant' token added to the tokenizer because it is not in the vocabulary without a space in front of it!")
+print_if_main_process(f"'assistant' token added to the tokenizer because it is not in the vocabulary without a space in front of it!")
 
 # Add special tokens to the tokenizer
 # Add "<|im_start|>", "<|im_end|>", "<|pause|>", "<|mem_start|>", "<|mem_end|>", etc.
@@ -279,11 +293,11 @@ tokenizer.add_special_tokens(
 )
 
 if args.additional_special_tokens:
-    print(f"Additional special tokens added to the tokenizer.")
+    print_if_main_process(f"Additional special tokens added to the tokenizer.")
 
     # Print the token IDs of the special tokens
     for token in args.additional_special_tokens:
-        print(f"{token}: {tokenizer(token)}")
+        print_if_main_process(f"{token}: {tokenizer(token)}")
 
 # Assert that the vocab size is a multiple of 8
 assert (len(tokenizer)) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code, dumbass!"
@@ -293,28 +307,28 @@ if args.chat_template:
     tokenizer.chat_template = args.chat_template
 
 # Load the dataset
-print(f"Loading the dataset from {dataset_name} ({dataset_config})...")
+print_if_main_process(f"Loading the dataset from {dataset_name} ({dataset_config})...")
 dataset = load_dataset(dataset_path, dataset_config)
 
 
 # Prepare the dataset
 def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool = False) -> DatasetDict:
-    print("Preparing the dataset...")
+    print_if_main_process("Preparing the dataset...")
     prepared_dataset = None
 
     # Select the first dataset_size examples from the training set
     if dataset_size > 0:
-        print("Selecting", dataset_size, "examples from the dataset...")
+        print_if_main_process("Selecting", dataset_size, "examples from the dataset...")
         prepared_dataset = dataset["train"].select(range(dataset_size))
     else:
         dataset_size = len(dataset["train"])
-        print("Using the entire dataset of size", dataset_size)
+        print_if_main_process("Using the entire dataset of size", dataset_size)
         prepared_dataset = dataset["train"]
 
     # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
-    print("Splitting the dataset into training and evaluation sets...")
-    print("Training set size:", round(dataset_size * dataset_split))
-    print("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
+    print_if_main_process("Splitting the dataset into training and evaluation sets...")
+    print_if_main_process("Training set size:", round(dataset_size * dataset_split))
+    print_if_main_process("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
     prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed, shuffle=shuffle)
 
     # Return the training and evaluation datasets
@@ -394,11 +408,11 @@ def hp_space(trial: optuna.Trial) -> dict:
 # Initialize the model
 def model_init(trial: optuna.Trial) -> PreTrainedModel:
     if trial is not None:
-        print("\033[93m" + f"Trial {trial.number}" + "\033[0m")
+        print_if_main_process("\033[93m" + f"Trial {trial.number}" + "\033[0m")
         # Print the hyperparameters as a single-line JSON string
-        print("\033[93m" + json.dumps(trial.params) + "\033[0m")
+        print_if_main_process("\033[93m" + json.dumps(trial.params) + "\033[0m")
 
-    print("Initialising the model...")
+    print_if_main_process("Initialising the model...")
 
     # Set the initial model configuration
     model_config = dict(
@@ -451,12 +465,15 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
     model_size = round(model_size)
     model_size_suffix = "G" if model_size > 1e3 else "M"
 
-    print(f"Model size: {model_size}{model_size_suffix} parameters")
+    print_if_main_process(f"Model size: {model_size}{model_size_suffix} parameters")
 
     return model
 
 
 def save_model(path: str) -> str:
+    global is_main_process
+    if not is_main_process:
+        return None
     model_path = f"{path}/model"
     trainer.save_model(model_path)
     # print(f"Model saved to {model_path}")
@@ -509,7 +526,7 @@ prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split, args.sh
 
 # Save the prepared dataset
 # prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
-# print("Prepared dataset saved to", f"{results_dir}/dataset/")
+# print_if_main_process("Prepared dataset saved to", f"{results_dir}/dataset/")
 
 # Save the dataset configuration
 with open(f"{results_dir}/dataset_config.json", "w") as f:
@@ -527,29 +544,26 @@ trainer = SFTTrainer(
     tokenizer=tokenizer,
     model_init=model_init,
     # compute_metrics=compute_metrics,
-    dataset_text_field="text",
-    packing=True,
-    max_seq_length=args.context_length,
 )
 
 
 def run_training():
     # Print the hyperparameters
-    print("Hyperparameters:")
-    print(f"  Learning rate: {learning_rate}")
-    print(f"  Learning rate scheduler: {lr_scheduler_type}")
-    print(f"  Per-device train batch size: {per_device_train_batch_size}")
-    print(f"  Epochs: {num_train_epochs}")
+    print_if_main_process("Hyperparameters:")
+    print_if_main_process(f"  Learning rate: {learning_rate}")
+    print_if_main_process(f"  Learning rate scheduler: {lr_scheduler_type}")
+    print_if_main_process(f"  Per-device train batch size: {per_device_train_batch_size}")
+    print_if_main_process(f"  Epochs: {num_train_epochs}")
     if warmup_steps > 0:
-        print(f"  Warmup steps: {warmup_steps}")
+        print_if_main_process(f"  Warmup steps: {warmup_steps}")
     else:
-        print(f"  Warmup ratio: {warmup_ratio}")
-    print(f"  Attention heads: {args.attention_heads}")
-    print(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
-    print(f"  Weight decay: {args.weight_decay}")
-    print(f"  Results directory: {results_dir}")
-    print(f"  Optimizer: {args.optim}")
-    print()
+        print_if_main_process(f"  Warmup ratio: {warmup_ratio}")
+    print_if_main_process(f"  Attention heads: {args.attention_heads}")
+    print_if_main_process(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
+    print_if_main_process(f"  Weight decay: {args.weight_decay}")
+    print_if_main_process(f"  Results directory: {results_dir}")
+    print_if_main_process(f"  Optimizer: {args.optim}")
+    print_if_main_process()
 
     # Save the hyperparameters to a file
     hyperparameters = {
@@ -572,30 +586,31 @@ def run_training():
     try:
         trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     except KeyboardInterrupt:
-        # Save the training progress
-        print("\nSaving the training progress...")
-        save_model(results_dir)
-        print("Training progress saved.")
-        print("Training interrupted by user.")
-        print(f"Resume training by running the following command:\npython sfttrainer.py --output_dir {results_dir} --resume_from_checkpoint")
+        # Save the training progress if main process
+        if is_main_process:
+            print("\nSaving the training progress...")
+            save_model(results_dir)
+            print("Training progress saved.")
+            print("Training interrupted by user.")
+            print(f"Resume training by running the following command:\npython sfttrainer.py --output_dir {results_dir} --resume_from_checkpoint")
         exit()
 
-    print("Training complete!")
-    print()
+    print_if_main_process("Training complete!")
+    print_if_main_process()
 
     # Save the model
     model_path = save_model(results_dir)
 
     # Display the results
-    print("Results directory:", results_dir)
-    print("Model saved to:", model_path)
-    print("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
-    print("Logs saved to:", f"{results_dir}/logs/")
-    print()
-    print("To view the training logs, run the following command:")
-    print(f"tensorboard --logdir {results_dir}/logs/")
-    print()
-    print("You can now fine-tune the model further or use it for generating text.")
+    print_if_main_process("Results directory:", results_dir)
+    print_if_main_process("Model saved to:", model_path)
+    print_if_main_process("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
+    print_if_main_process("Logs saved to:", f"{results_dir}/logs/")
+    print_if_main_process()
+    print_if_main_process("To view the training logs, run the following command:")
+    print_if_main_process(f"tensorboard --logdir {results_dir}/logs/")
+    print_if_main_process()
+    print_if_main_process("You can now fine-tune the model further or use it for generating text.")
 
     # Congratulations! Your model has been trained successfully.
 
@@ -670,25 +685,25 @@ def run_study():
     best_run_path = f"{results_dir}/best_run.json"
     with open(best_run_path, "w") as f:
         json.dump(best_run, f, indent=4)
-    print(f"Best run saved to {best_run_path}")
+    print_if_main_process(f"Best run saved to {best_run_path}")
 
     # Save the best model
     best_model_path = save_model(results_dir)
 
     # Print the best run
-    print("Best run:")
-    print(json.dumps(best_run, indent=4))
+    print_if_main_process("Best run:")
+    print_if_main_process(json.dumps(best_run, indent=4))
 
     # Display the results
-    print("Results directory:", results_dir)
-    print("Best run saved to:", best_run_path)
-    print("Study saved to:", study_db_path)
-    print("Visualizations saved to:", vis_dir)
-    print("Best model saved to:", best_model_path)
-    print("Logs saved to:", f"{results_dir}/logs/")
-    print()
-    print("To view the training logs, run the following command:")
-    print(f"tensorboard --logdir {results_dir}/logs/")
+    print_if_main_process("Results directory:", results_dir)
+    print_if_main_process("Best run saved to:", best_run_path)
+    print_if_main_process("Study saved to:", study_db_path)
+    print_if_main_process("Visualizations saved to:", vis_dir)
+    print_if_main_process("Best model saved to:", best_model_path)
+    print_if_main_process("Logs saved to:", f"{results_dir}/logs/")
+    print_if_main_process()
+    print_if_main_process("To view the training logs, run the following command:")
+    print_if_main_process(f"tensorboard --logdir {results_dir}/logs/")
 
 
 # Run whatever is needed
