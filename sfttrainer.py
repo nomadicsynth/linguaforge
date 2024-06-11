@@ -65,6 +65,10 @@ parser.add_argument("--weight_decay", type=float, default=0.0434, help="Weight d
 parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
 parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing")
 parser.add_argument("--optim", type=str, default="adamw_8bit", help="Optimizer to use")
+# Early stopping
+parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
+parser.add_argument("--early_stopping_patience", type=int, default=3, help="Number of epochs to wait before early stopping")
+parser.add_argument("--early_stopping_threshold", type=float, default=0.0, help="Minimum change in the monitored quantity to qualify as an improvement")
 
 # Add the arguments for the Optuna study
 parser.add_argument("--run_hyperparameter_search", action="store_true", help="Enable hyperparameter search")
@@ -124,6 +128,7 @@ import time
 import torch
 from transformers import (
     AutoTokenizer,
+    EarlyStoppingCallback,
     MistralConfig,
     MistralForCausalLM,
     PreTrainedModel,
@@ -545,6 +550,15 @@ trainer = SFTTrainer(
     model_init=model_init,
     # compute_metrics=compute_metrics,
 )
+
+# If early stopping is enabled, add the callback
+if args.early_stopping:
+    trainer.add_callback(
+        EarlyStoppingCallback(
+            early_stopping_patience=args.early_stopping_patience,
+            early_stopping_threshold=args.early_stopping_threshold,
+        )
+    )
 
 
 def run_training():
