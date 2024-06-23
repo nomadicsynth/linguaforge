@@ -69,6 +69,10 @@ parser.add_argument("--optim", type=str, default="adamw_8bit", help="Optimizer t
 parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
 parser.add_argument("--early_stopping_patience", type=int, default=3, help="Number of epochs to wait before early stopping")
 parser.add_argument("--early_stopping_threshold", type=float, default=0.0, help="Minimum change in the monitored quantity to qualify as an improvement")
+# Grokfast EMA
+parser.add_argument("--grokfast_ema", action="store_true", help="Enable Grokfast EMA slow-gradient amplification")
+parser.add_argument("--grokfast_ema_alpha", type=float, default=0.98, help="Alpha parameter for Grokfast EMA")
+parser.add_argument("--grokfast_ema_lambda", type=float, default=2.0, help="Lambda parameter for Grokfast EMA")
 
 # Add the arguments for the Optuna study
 parser.add_argument("--run_hyperparameter_search", action="store_true", help="Enable hyperparameter search")
@@ -114,6 +118,12 @@ parser.add_argument("--warmup_steps_range", type=int, nargs=2,
 parser.add_argument("--opt_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
 parser.add_argument("--hidden_layers_range", type=int, nargs=2,
                     default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
+parser.add_argument("--opt_grokfast_ema", action="store_true", help="Optimize Grokfast EMA settings")
+parser.add_argument("--grokfast_ema_alpha_range", type=float, nargs=2,
+                    default=[0.8, 0.99], help="Range of alpha values to use for hyperparameter search")
+parser.add_argument("--grokfast_ema_lambda_range", type=float, nargs=2,
+                    default=[1.0, 3.0], help="Range of lambda values to use for hyperparameter search")
+
 parser.add_argument("--additional_special_tokens", type=str, nargs="+",
                     default=None, help="Additional special tokens to add to the tokenizer")
 parser.add_argument("--chat_template", type=str, default=None, help="Chat template for chatbot training")
@@ -506,7 +516,7 @@ training_args = SFTConfig(
     save_steps=(1 / 4) / num_train_epochs,
     logging_dir=f"{results_dir}/logs/",
     logging_strategy="steps",
-    logging_steps=0.1 / num_train_epochs if args.run_hyperparameter_search else 1000,
+    logging_steps=0.1 / num_train_epochs if args.run_hyperparameter_search else 100,
     load_best_model_at_end=True,
     seed=seed,
     data_seed=seed,
@@ -523,6 +533,9 @@ training_args = SFTConfig(
     dataloader_num_workers=args.num_cpus // 2,
     accelerator_config={"split_batches": True},
     ddp_find_unused_parameters=False,
+    grokfast_ema=args.grokfast_ema,
+    grokfast_ema_alpha=args.grokfast_ema_alpha,
+    grokfast_ema_lambda=args.grokfast_ema_lambda,
 )
 
 # Prepare the dataset
