@@ -121,7 +121,6 @@ parser.add_argument("--chat_template", type=str, default=None, help="Chat templa
 args = parser.parse_args()
 
 from datasets import load_dataset, DatasetDict
-import evaluate
 import json
 import optuna
 import time
