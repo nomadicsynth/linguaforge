@@ -3,15 +3,19 @@ bitsandbytes
 datasets
 deepspeed
 python-dotenv
-flash-attn
 mpi4py
-ninja
 optuna
-packaging
 plotly
 scikit-learn
 tensorboard
 torch
 transformers
 trl
-wheel
+
+# Install the following packages before installing the above packages
+# ninja
+# packaging
+# wheel
+
+# Install the following packages after installing the rest
+# pip install flash-attn --no-build-isolation
