@@ -48,9 +48,28 @@ parser.add_argument("--seed", type=int, default=42, help="Random seed for reprod
 parser.add_argument("--dtype", type=str, default="bfloat16",
                     help="Data type to use for the model",
                     choices=["float16", "bfloat16", "float32"])
-parser.add_argument("--learning_rate", type=float, default=8.6e-4, help="Learning rate for the AdamW optimizer")
-parser.add_argument("--lr_scheduler_type", type=str, default="linear", help="Learning rate scheduler type")
-parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
+parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for the AdamW optimizer")
+parser.add_argument(
+    "--lr_scheduler_type",
+    type=str,
+    default="reduce_lr_on_plateau",
+    choices=[
+        "linear",
+        "cosine",
+        "cosine_with_restarts",
+        "polynomial",
+        "constant",
+        "constant_with_warmup",
+        "inverse_sqrt",
+        "reduce_lr_on_plateau",
+        "cosine_with_min_lr",
+        "warmup_stable_decay",
+    ],
+    help="Learning rate scheduler type",
+)
+parser.add_argument(
+    "--num_train_epochs", type=int, default=5, help="Number of training epochs"
+)
 parser.add_argument("--auto_find_batch_size", action="store_true", help="Automatically find the batch size")
 parser.add_argument("--per_device_train_batch_size", type=int, default=4,
                     help="Batch size per GPU/TPU core/CPU for training")
