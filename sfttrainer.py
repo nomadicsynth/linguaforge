@@ -80,10 +80,10 @@ parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
 parser.add_argument("--warmup_ratio", type=float, default=0.10,
                     help="Ratio of the number of warmup steps to the total number of training steps")
 parser.add_argument("--warmup_steps", type=int, default=0, help="Number of warmup steps")
-parser.add_argument("--weight_decay", type=float, default=0.0434, help="Weight decay for the AdamW optimizer")
+parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay for the AdamW optimizer")
 parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
 parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing")
-parser.add_argument("--optim", type=str, default="adamw_8bit", help="Optimizer to use")
+parser.add_argument("--optim", type=str, default="adamw_bnb_8bit", help="Optimizer to use")
 # Early stopping
 parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
 parser.add_argument("--early_stopping_patience", type=int, default=3, help="Number of epochs to wait before early stopping")
@@ -529,13 +529,13 @@ training_args = SFTConfig(
     lr_scheduler_type=lr_scheduler_type,
     optim=args.optim,
     weight_decay=args.weight_decay,
-    eval_strategy="epoch" if args.run_hyperparameter_search else "steps",
-    eval_steps=(1 / 4) / num_train_epochs,
-    save_strategy="epoch" if args.run_hyperparameter_search else "steps",
-    save_steps=(1 / 4) / num_train_epochs,
+    eval_strategy="epoch",
+    # eval_steps=(1 / 4) / num_train_epochs,
+    save_strategy="epoch",
+    # save_steps=(1 / 4) / num_train_epochs,
     logging_dir=f"{results_dir}/logs/",
-    logging_strategy="steps",
-    logging_steps=0.1 / num_train_epochs if args.run_hyperparameter_search else 100,
+    logging_strategy="epoch",
+    # logging_steps=0.1 / num_train_epochs,
     load_best_model_at_end=True,
     seed=seed,
     data_seed=seed,
