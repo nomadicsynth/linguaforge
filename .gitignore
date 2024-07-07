@@ -6,3 +6,4 @@ result-backup/
 results-backup/
 .env
 console_output.txt
+wandb/

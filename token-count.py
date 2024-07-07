@@ -27,7 +27,7 @@ tokenizer.model_max_length = args.sequence_length
 
 # Set up truncation and padding
 tokenizer.set_truncation_and_padding(
-    padding_strategy=PaddingStrategy.NONE
+    padding_strategy=PaddingStrategy.NONE,
     truncation_strategy=TruncationStrategy.LONGEST_FIRST,
     max_length=args.sequence_length,
     stride=args.stride,
@@ -131,7 +131,7 @@ prepared_dataset = prepare_dataset(
 
 # Function to tokenize a batch of texts
 def tokenize_function(examples):
-    return tokenizer(examples["text"], tr
+    return tokenizer(examples["text"], truncation=False, padding=False, return_overflowing_tokens=True)
 
 
 # Tokenize the dataset

@@ -1,7 +1,14 @@
 import os
 
+# Set environment variables for NCCL blocking wait and error handling
+os.environ['TORCH_NCCL_BLOCKING_WAIT'] = '1'
+os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
+
 # Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
 os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
+
+# Enable parallelism in the tokenizers library
+os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # Print the local rank
 is_main_process = os.environ.get("LOCAL_RANK", 0) == "0"
@@ -9,22 +16,34 @@ print("Local rank:", os.environ.get("LOCAL_RANK", -1))
 
 import argparse
 
+
+# Custom action to parse key-value pairs
+class KeyValueAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, dict())
+        for item in values:
+            key, value = item.split("=")
+            if isinstance(value, str):
+                try:
+                    if "." in value or "e" in value:
+                        value = float(value)
+                    else:
+                        value = int(value)
+                except ValueError:
+                    pass
+            getattr(namespace, self.dest)[key] = value
+
+
 # Set up command-line arguments with argparse
 parser = argparse.ArgumentParser(description="Train a Mistral model on a Wikipedia dataset.")
 
-# Add the argument for the project name
 parser.add_argument("--project_name", type=str, default="mini-mistral", help="Name of the project")
-
-# Add the argument for the results directory
 parser.add_argument("--output_dir", type=str,
                     default=f"/mnt/ai-stuff-fast/training-results", help="Directory to save the results")
-
-# Add the argument for the number of CPUs
 parser.add_argument("--num_cpus", type=int, default=None, help="Number of CPUs to use")
 
 # Add the arguments for the model settings
 parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
-# Resume from checkpoint is a boolean argument. If it is set, the model will resume training from the last checkpoint.
 parser.add_argument("--resume_from_checkpoint", action="store_true", help="Resume training from the last checkpoint")
 parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
@@ -35,13 +54,17 @@ parser.add_argument("--num_key_value_heads", type=int, default=8, help="Number o
 parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
 
 # Add the arguments for the dataset settings
-parser.add_argument("--dataset_name", type=str, default=None, required=True, help="Name of the dataset to use")
+parser.add_argument("--dataset_name_or_path", type=str, default=None, required=True, help="Name of the dataset to use")
 parser.add_argument("--dataset_config", type=str, default="default", help="Configuration of the dataset to use")
-parser.add_argument("--dataset_path", type=str, default=None, required=True, help="Path to the dataset")
 parser.add_argument("--dataset_size", type=int, default=0, help="Number of examples to use from the dataset. Set to 0 to use the entire dataset")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training if < 1, or number of examples if >= 1")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
 parser.add_argument("--shuffle", action="store_true", help="Shuffle the dataset")
+parser.add_argument("--dataset_batch_size", type=int, default=1000, help="Batch size for processing the dataset")
+parser.add_argument("--dataset_packing", action="store_true", help="Enable dataset packing")
+parser.add_argument("--save_prepared_dataset", action="store_true", help="Save the prepared dataset")
+parser.add_argument("--save_prepared_dataset_only", action="store_true", help="Save the prepared dataset and exit")
+parser.add_argument("--dataset_save_path", type=str, default="dataset", help="Path to save the prepared dataset")
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -54,19 +77,13 @@ parser.add_argument(
     type=str,
     default="reduce_lr_on_plateau",
     choices=[
-        "linear",
-        "cosine",
-        "cosine_with_restarts",
-        "polynomial",
-        "constant",
-        "constant_with_warmup",
-        "inverse_sqrt",
-        "reduce_lr_on_plateau",
-        "cosine_with_min_lr",
-        "warmup_stable_decay",
+        "linear", "cosine", "cosine_with_restarts", "polynomial", "constant",
+        "constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau",
+        "cosine_with_min_lr", "warmup_stable_decay"
     ],
     help="Learning rate scheduler type",
 )
+parser.add_argument("--lr_scheduler_args", nargs="+", action=KeyValueAction, help="Arguments for the learning rate scheduler")
 parser.add_argument(
     "--num_train_epochs", type=int, default=5, help="Number of training epochs"
 )
@@ -77,18 +94,37 @@ parser.add_argument("--per_device_eval_batch_size", type=int, default=4,
                     help="Batch size per GPU/TPU core/CPU for evaluation")
 parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                     help="Number of steps to accumulate gradients for")
+parser.add_argument("--eval_accumulation_steps", type=int, default=None,
+                    help="Number of steps to accumulate evaluation results for before moving to CPU. Saves VRAM during eval.")
 parser.add_argument("--warmup_ratio", type=float, default=0.10,
                     help="Ratio of the number of warmup steps to the total number of training steps")
 parser.add_argument("--warmup_steps", type=int, default=0, help="Number of warmup steps")
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay for the AdamW optimizer")
 parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
 parser.add_argument("--gradient_checkpointing", action="store_true", help="Enable gradient checkpointing")
-parser.add_argument("--optim", type=str, default="adamw_bnb_8bit", help="Optimizer to use")
+parser.add_argument(
+    "--optimizer",
+    type=str,
+    default="adamw_bnb_8bit",
+    choices=[
+        'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
+        'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision',
+        'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit',
+        'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit',
+        'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
+        'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
+        'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
+    ],
+    help="Optimizer to use"
+)
+parser.add_argument("--optimizer_args", nargs="+", action=KeyValueAction, help="Arguments for the optimizer")
+
 # Early stopping
 parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
 parser.add_argument("--early_stopping_patience", type=int, default=3, help="Number of epochs to wait before early stopping")
 parser.add_argument("--early_stopping_threshold", type=float, default=0.0, help="Minimum change in the monitored quantity to qualify as an improvement")
-# Grokfast EMA
+
+# Grokfast Accelerated Grokking
 parser.add_argument("--grokfast_ema", action="store_true", help="Enable Grokfast EMA slow-gradient amplification")
 parser.add_argument("--grokfast_ema_alpha", type=float, default=0.98, help="Alpha parameter for Grokfast EMA")
 parser.add_argument("--grokfast_ema_lambda", type=float, default=2.0, help="Lambda parameter for Grokfast EMA")
@@ -149,22 +185,21 @@ parser.add_argument("--chat_template", type=str, default=None, help="Chat templa
 
 args = parser.parse_args()
 
-from datasets import load_dataset, DatasetDict
 import json
-import optuna
 import time
-import torch
-from transformers import (
-    AutoTokenizer,
-    EarlyStoppingCallback,
-    MistralConfig,
-    MistralForCausalLM,
-    PreTrainedModel,
-)
-from transformers.tokenization_utils_base import TruncationStrategy
-from transformers.utils import PaddingStrategy, logging
-from trl import set_seed, SFTTrainer, SFTConfig
 import warnings
+
+import evaluate
+import optuna
+import torch
+from datasets import DatasetDict, load_dataset
+from transformers import (AutoTokenizer, EarlyStoppingCallback, MistralConfig,
+                          MistralForCausalLM, PreTrainedModel)
+from transformers.tokenization_utils_base import TruncationStrategy
+from transformers.trainer_utils import EvalPrediction
+from transformers.utils import PaddingStrategy, logging
+from trl import SFTConfig, SFTTrainer, set_seed
+import wandb
 
 # Ignore the warning about gathering scalars
 warnings.filterwarnings(
@@ -184,14 +219,19 @@ warnings.filterwarnings(
     append=True,
 )
 
+
 # Function that prints to the console only if the process is the main process
 def print_if_main_process(*args, **kwargs):
     global is_main_process
     if is_main_process:
         print(*args, **kwargs)
 
+
 # Get the logger
 logger = logging.get_logger(__name__)
+
+# Set the logging level to ERROR
+logger.setLevel(logging.ERROR)
 
 # Disable the logging if not the main process
 if not is_main_process:
@@ -203,9 +243,8 @@ timestamp = time.strftime("%Y%m%d-%H%M%S")
 template_model_name = args.template_model_name
 
 # Dataset settings
-dataset_name = args.dataset_name  # Name of the dataset to use
+dataset_name_or_path = args.dataset_name_or_path  # Name of the dataset to use
 dataset_config = args.dataset_config  # Configuration of the dataset to use
-dataset_path = args.dataset_path  # Path to the dataset
 dataset_size = args.dataset_size  # Number of examples to use from the dataset
 dataset_split = args.dataset_split  # Percentage of examples to use for training
 stride = args.stride  # Stride for splitting the input into multiple sequences
@@ -226,7 +265,6 @@ args.dtype = (
     else torch.float32
 )
 learning_rate = args.learning_rate  # Learning rate for the AdamW optimizer
-lr_scheduler_type = args.lr_scheduler_type  # Learning rate scheduler type
 num_train_epochs = args.num_train_epochs  # Number of training epochs
 per_device_train_batch_size = args.per_device_train_batch_size  # Batch size per GPU/TPU core/CPU for training
 gradient_accumulation_steps = args.gradient_accumulation_steps  # Number of steps to accumulate gradients for
@@ -234,14 +272,6 @@ warmup_ratio = args.warmup_ratio  # Ratio of the number of warmup steps to the t
 warmup_steps = args.warmup_steps  # Number of warmup steps
 max_grad_norm = args.max_grad_norm  # Maximum gradient norm
 gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpointing
-# Choose the optimizer to use
-# 'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
-# 'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision',
-# 'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit',
-# 'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit',
-# 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
-# 'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
-# 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
 
 # Optuna study settings
 study_name = args.study_name  # Name of the Optuna study
@@ -299,20 +329,20 @@ tokenizer.set_truncation_and_padding(
 )
 
 # Add assistant token to the tokenizer for the chat template because it is not in the vocabulary without a space in front of it!
-tokenizer.add_tokens(["assistant"])
-print_if_main_process(f"'assistant' token added to the tokenizer because it is not in the vocabulary without a space in front of it!")
+# tokenizer.add_tokens(["assistant"])
+# print_if_main_process(f"'assistant' token added to the tokenizer because it is not in the vocabulary without a space in front of it!")
 
 # Add special tokens to the tokenizer
 # Add "<|im_start|>", "<|im_end|>", "<|pause|>", "<|mem_start|>", "<|mem_end|>", etc.
 additional_special_tokens = [
     "<|im_start|>", "<|im_end|>",
-    "<|named_user|>",  # Named user. For future use. Example: "<|im_start|><|named_user|>Alice\n<Alice's message><|im_end|>"
-    "<|named_assistant|>",  # Named assistant. For future use. Example: "<|im_start|><|named_assistant|>Assistant George\n<Assistant George's message><|im_end|>"
-    "<|mem_start|>", "<|mem_end|>",  # Memory start and end tokens. For future use. Store hidden information in the context, e.g. "<|mem_start|>Alice's birthday is 12th May.<|mem_end|>"
-    "<|pause|>",  # Pause token. For future use. See https://arxiv.org/abs/2310.02226.pdf Think before you speak: Training Language Models With Pause Tokens
+    # "<|named_user|>",  # Named user. For future use. Example: "<|im_start|><|named_user|>Alice\n<Alice's message><|im_end|>"
+    # "<|named_assistant|>",  # Named assistant. For future use. Example: "<|im_start|><|named_assistant|>Assistant George\n<Assistant George's message><|im_end|>"
+    # "<|mem_start|>", "<|mem_end|>",  # Memory start and end tokens. For future use. Store hidden information in the context, e.g. "<|mem_start|>Alice's birthday is 12th May.<|mem_end|>"
+    # "<|pause|>",  # Pause token. For future use. See https://arxiv.org/abs/2310.02226.pdf Think before you speak: Training Language Models With Pause Tokens
 ]
 
-# Add additional special tokens
+# Add additional special tokens from args
 if args.additional_special_tokens:
     additional_special_tokens += args.additional_special_tokens
 
@@ -340,62 +370,83 @@ if args.chat_template:
     tokenizer.chat_template = args.chat_template
 
 # Load the dataset
-print_if_main_process(f"Loading the dataset from {dataset_name} ({dataset_config})...")
-dataset = load_dataset(dataset_path, dataset_config)
+print_if_main_process(f"Loading the dataset from {dataset_name_or_path} ({dataset_config})...")
+dataset = load_dataset(dataset_name_or_path, dataset_config)
 
 
 # Prepare the dataset
-def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool = False) -> DatasetDict:
+def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool = False, num_procs: int = 1, batch_size: int = 1000) -> DatasetDict:
     print_if_main_process("Preparing the dataset...")
-    prepared_dataset = None
-
-    # Select the first dataset_size examples from the training set
-    if dataset_size > 0:
-        print_if_main_process("Selecting", dataset_size, "examples from the dataset...")
-        prepared_dataset = dataset["train"].select(range(dataset_size))
+    # If the dataset is already split into train and test and/or validate
+    if "validation" in dataset:
+        dataset["test"] = dataset["validation"]
+        del dataset["validation"]
+    if "test" in dataset:
+        return dataset
     else:
-        dataset_size = len(dataset["train"])
-        print_if_main_process("Using the entire dataset of size", dataset_size)
-        prepared_dataset = dataset["train"]
+        prepared_dataset = None
 
-    # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
-    print_if_main_process("Splitting the dataset into training and evaluation sets...")
-    print_if_main_process("Training set size:", round(dataset_size * dataset_split))
-    print_if_main_process("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-    prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed, shuffle=shuffle)
+        # Select the first dataset_size examples from the training set
+        if dataset_size > 0:
+            print_if_main_process("Selecting", dataset_size, "examples from the dataset...")
+            prepared_dataset = dataset["train"].select(range(dataset_size), writer_batch_size=batch_size)
+        else:
+            dataset_size = len(dataset["train"])
+            print_if_main_process("Using the entire dataset of size", dataset_size)
+            prepared_dataset = dataset["train"]
 
-    # Return the training and evaluation datasets
-    return prepared_dataset
+        # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
+        print_if_main_process("Splitting the dataset into training and evaluation sets...")
+        print_if_main_process("Training set size:", round(dataset_size * dataset_split))
+        print_if_main_process("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
+        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed, shuffle=shuffle, writer_batch_size=batch_size)
+
+        # Return the training and evaluation datasets
+        return prepared_dataset
 
 # Load the evaluation metrics
 # metric_perplexity = evaluate.load("perplexity")
-# metric_accuracy = evaluate.load("accuracy")
+metric_accuracy = evaluate.load("accuracy")
 # metric_f1 = evaluate.load("f1")
 # metric_rouge = evaluate.load("rouge")
 # metric_bleu = evaluate.load("bleu")
 
+# These variables will store batch-level metric results
+batch_accuracies = []
+# batch_f1_scores = []
+
+
 # Compute the evaluation metrics
-def compute_metrics(eval_pred):
-    # logits, labels = eval_pred
-    # predictions = logits.argmax(dim=-1)
-    
-    # Calculate the metrics
-    # perplexity = metric_perplexity.compute(predictions=predictions, references=labels)
-    # accuracy = metric_accuracy.compute(predictions=predictions, references=labels)
-    # f1 = metric_f1.compute(predictions=predictions, references=labels, average='weighted')
-    # rouge = metric_rouge.compute(predictions=predictions, references=labels)
-    # bleu = metric_bleu.compute(predictions=predictions, references=labels)
-    
-    return {
-        'eval_loss': eval_pred.loss,
-        # 'perplexity': perplexity,
-        # 'accuracy': accuracy['accuracy'],
-        # 'f1': f1['f1'],
-        # 'rouge1': rouge['rouge1'].mid.fmeasure,
-        # 'rouge2': rouge['rouge2'].mid.fmeasure,
-        # 'rougeL': rouge['rougeL'].mid.fmeasure,
-        # 'bleu': bleu['bleu']
-    }
+def compute_metrics(eval_pred, compute_result=False):
+    # Unpack the predictions and labels from the eval_pred
+    logits, labels = eval_pred
+    predictions = torch.argmax(logits, dim=-1).flatten()
+    labels = labels.flatten()
+
+    if compute_result:
+        # When compute_result is True, compute and return the final metrics
+        global_accuracy = sum(batch_accuracies) / len(batch_accuracies)
+        # global_f1 = sum(batch_f1_scores) / len(batch_f1_scores)
+        return {
+            "accuracy": global_accuracy,
+            # "f1": global_f1
+        }
+    else:
+        # Compute the accuracy for the current batch
+        batch_accuracy = metric_accuracy.compute(
+            predictions=predictions, references=labels
+        )["accuracy"]
+        # Store the batch accuracy
+        batch_accuracies.append(batch_accuracy)
+
+        # Compute the f1 for the current batch
+        # batch_f1 = metric_f1.compute(
+        #     predictions=predictions, references=labels, average="micro"
+        # )["f1"]
+        # # Store the batch f1
+        # batch_f1_scores.append(batch_f1)
+
+        return {}
 
 
 # Hyperparameter search objective function
@@ -504,18 +555,31 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
 
 
 def save_model(path: str) -> str:
-    global is_main_process
-    if not is_main_process:
-        return None
     model_path = f"{path}/model"
     trainer.save_model(model_path)
     # print(f"Model saved to {model_path}")
 
     return model_path
 
+
+# set the wandb project where this run will be logged
+os.environ["WANDB_PROJECT"] = args.project_name
+
+# save your trained model checkpoint to wandb
+os.environ["WANDB_LOG_MODEL"] = "false"
+
+# turn off watch to log faster
+os.environ["WANDB_WATCH"] = "false"
+
 # TrainingArguments setup
+eval_steps = (1 / 200) / num_train_epochs
+# eval_steps = 10
+save_steps = eval_steps * 20
+logging_steps = 5
+
 training_args = SFTConfig(
     output_dir=results_dir,
+    run_name=f"run-{timestamp}",
     num_train_epochs=num_train_epochs,
     auto_find_batch_size=args.auto_find_batch_size,
     per_device_train_batch_size=args.per_device_train_batch_size,
@@ -526,47 +590,59 @@ training_args = SFTConfig(
     warmup_ratio=warmup_ratio,
     warmup_steps=warmup_steps,
     learning_rate=learning_rate,
-    lr_scheduler_type=lr_scheduler_type,
-    optim=args.optim,
+    lr_scheduler_type=args.lr_scheduler_type,
+    lr_scheduler_kwargs=args.lr_scheduler_args,
+    optim=args.optimizer,
     weight_decay=args.weight_decay,
-    eval_strategy="epoch",
-    # eval_steps=(1 / 4) / num_train_epochs,
-    save_strategy="epoch",
-    # save_steps=(1 / 4) / num_train_epochs,
+    eval_strategy="steps",
+    eval_steps=eval_steps,
+    save_strategy="steps",
+    save_steps=save_steps,
     logging_dir=f"{results_dir}/logs/",
-    logging_strategy="epoch",
-    # logging_steps=0.1 / num_train_epochs,
-    load_best_model_at_end=True,
+    logging_strategy="steps",
+    logging_steps=logging_steps,
+    load_best_model_at_end=False,
     seed=seed,
     data_seed=seed,
     bf16=(args.dtype == torch.bfloat16),
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
     fp16_full_eval=(args.dtype == torch.float16),
-    report_to="none" if args.run_hyperparameter_search else "tensorboard",
+    report_to="wandb",
     remove_unused_columns=True,
     dataset_text_field="text",
-    packing=True,
+    dataset_batch_size=args.dataset_batch_size,
+    packing=args.dataset_packing,
     max_seq_length=args.context_length,
     dataset_num_proc=args.num_cpus // 2,
     dataloader_num_workers=args.num_cpus // 2,
     accelerator_config={"split_batches": True},
     ddp_find_unused_parameters=False,
+    batch_eval_metrics=True,
     grokfast_ema=args.grokfast_ema,
     grokfast_ema_alpha=args.grokfast_ema_alpha,
     grokfast_ema_lambda=args.grokfast_ema_lambda,
 )
 
-# Prepare the dataset
-prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split, args.shuffle)
+# If the evaluation accumulation steps are set, add them to the training arguments
+if args.eval_accumulation_steps:
+    training_args.eval_accumulation_steps = args.eval_accumulation_steps
+
+prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split, args.shuffle, args.num_cpus // 2, args.dataset_batch_size)
 
 # Save the prepared dataset
-# prepared_dataset.save_to_disk(f"{results_dir}/dataset/")
-# print_if_main_process("Prepared dataset saved to", f"{results_dir}/dataset/")
+if args.save_prepared_dataset:
+    # Only save if main process
+    if is_main_process:
+        prepared_dataset.save_to_disk(args.dataset_save_path)
+    print_if_main_process(f"Prepared dataset saved to {args.dataset_save_path}")
+    if args.save_prepared_dataset_only:
+        print_if_main_process("Exiting...")
+        exit()
 
 # Save the dataset configuration
 with open(f"{results_dir}/dataset_config.json", "w") as f:
-    json.dump({"dataset_name": dataset_name, "dataset_config": dataset_config,
+    json.dump({"dataset_name_or_path": dataset_name_or_path, "dataset_config": dataset_config,
               "dataset_size": len(prepared_dataset), "dataset_split": dataset_split, "stride": stride}, f, indent=2)
 
 # Free up some memory
@@ -579,7 +655,7 @@ trainer = SFTTrainer(
     eval_dataset=prepared_dataset["test"],
     tokenizer=tokenizer,
     model_init=model_init,
-    # compute_metrics=compute_metrics,
+    compute_metrics=compute_metrics,
 )
 
 # If early stopping is enabled, add the callback
@@ -596,7 +672,7 @@ def run_training():
     # Print the hyperparameters
     print_if_main_process("Hyperparameters:")
     print_if_main_process(f"  Learning rate: {learning_rate}")
-    print_if_main_process(f"  Learning rate scheduler: {lr_scheduler_type}")
+    print_if_main_process(f"  Learning rate scheduler: {args.lr_scheduler_type}")
     print_if_main_process(f"  Per-device train batch size: {per_device_train_batch_size}")
     print_if_main_process(f"  Epochs: {num_train_epochs}")
     if warmup_steps > 0:
@@ -607,13 +683,13 @@ def run_training():
     print_if_main_process(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
     print_if_main_process(f"  Weight decay: {args.weight_decay}")
     print_if_main_process(f"  Results directory: {results_dir}")
-    print_if_main_process(f"  Optimizer: {args.optim}")
+    print_if_main_process(f"  Optimizer: {args.optimizer}")
     print_if_main_process()
 
     # Save the hyperparameters to a file
     hyperparameters = {
         "learning_rate": learning_rate,
-        "lr_scheduler_type": lr_scheduler_type,
+        "lr_scheduler_type": args.lr_scheduler_type,
         "per_device_train_batch_size": per_device_train_batch_size,
         "num_train_epochs": num_train_epochs,
         "warmup_ratio": warmup_ratio if warmup_steps == 0 else 0,
@@ -622,7 +698,7 @@ def run_training():
         "gradient_accumulation_steps": gradient_accumulation_steps,
         "weight_decay": args.weight_decay,
         "results_dir": results_dir,
-        "optim": args.optim,
+        "optim": args.optimizer,
     }
     with open(f"{results_dir}/hyperparameters.json", "w") as f:
         json.dump(hyperparameters, f, indent=2)
