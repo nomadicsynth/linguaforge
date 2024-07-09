@@ -43,6 +43,7 @@ parser.add_argument("--output_dir", type=str,
 parser.add_argument("--num_cpus", type=int, default=None, help="Number of CPUs to use")
 
 # Add the arguments for the model settings
+parser.add_argument("--pretrained_model_name_or_path", type=str, default=None, help="Name or path of the pretrained model")
 parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
 parser.add_argument("--resume_from_checkpoint", action="store_true", help="Resume training from the last checkpoint")
 parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
@@ -193,8 +194,13 @@ import evaluate
 import optuna
 import torch
 from datasets import DatasetDict, load_dataset
-from transformers import (AutoTokenizer, EarlyStoppingCallback, MistralConfig,
-                          MistralForCausalLM, PreTrainedModel)
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    AutoConfig,
+    EarlyStoppingCallback,
+    PreTrainedModel,
+)
 from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.trainer_utils import EvalPrediction
 from transformers.utils import PaddingStrategy, logging
@@ -312,63 +318,6 @@ if not os.path.exists(results_dir):
 
 print(f"Using device: {device}")
 
-# Load tokenizer
-print_if_main_process(f"Loading the tokenizer from {template_model_name}...")
-tokenizer = AutoTokenizer.from_pretrained(template_model_name)
-tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
-tokenizer.padding_side = 'right'
-tokenizer.model_max_length = args.context_length
-
-# Set up truncation and padding
-tokenizer.set_truncation_and_padding(
-    padding_strategy=PaddingStrategy.LONGEST,
-    truncation_strategy=TruncationStrategy.LONGEST_FIRST,
-    max_length=args.context_length,
-    stride=stride,
-    pad_to_multiple_of=8,
-)
-
-# Add assistant token to the tokenizer for the chat template because it is not in the vocabulary without a space in front of it!
-# tokenizer.add_tokens(["assistant"])
-# print_if_main_process(f"'assistant' token added to the tokenizer because it is not in the vocabulary without a space in front of it!")
-
-# Add special tokens to the tokenizer
-# Add "<|im_start|>", "<|im_end|>", "<|pause|>", "<|mem_start|>", "<|mem_end|>", etc.
-additional_special_tokens = [
-    "<|im_start|>", "<|im_end|>",
-    # "<|named_user|>",  # Named user. For future use. Example: "<|im_start|><|named_user|>Alice\n<Alice's message><|im_end|>"
-    # "<|named_assistant|>",  # Named assistant. For future use. Example: "<|im_start|><|named_assistant|>Assistant George\n<Assistant George's message><|im_end|>"
-    # "<|mem_start|>", "<|mem_end|>",  # Memory start and end tokens. For future use. Store hidden information in the context, e.g. "<|mem_start|>Alice's birthday is 12th May.<|mem_end|>"
-    # "<|pause|>",  # Pause token. For future use. See https://arxiv.org/abs/2310.02226.pdf Think before you speak: Training Language Models With Pause Tokens
-]
-
-# Add additional special tokens from args
-if args.additional_special_tokens:
-    additional_special_tokens += args.additional_special_tokens
-
-# Add <|spare_1|>, <|spare_2|>, etc. to the tokenizer to make the vocab size a multiple of 8
-for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1):
-    additional_special_tokens.append(f"<|spare_{i}|>")
-
-tokenizer.add_special_tokens(
-    {"additional_special_tokens": additional_special_tokens},
-    replace_additional_special_tokens=False
-)
-
-if args.additional_special_tokens:
-    print_if_main_process(f"Additional special tokens added to the tokenizer.")
-
-    # Print the token IDs of the special tokens
-    for token in args.additional_special_tokens:
-        print_if_main_process(f"{token}: {tokenizer(token)}")
-
-# Assert that the vocab size is a multiple of 8
-assert (len(tokenizer)) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code, dumbass!"
-
-# Set up the chat template
-if args.chat_template:
-    tokenizer.chat_template = args.chat_template
-
 # Load the dataset
 print_if_main_process(f"Loading the dataset from {dataset_name_or_path} ({dataset_config})...")
 dataset = load_dataset(dataset_name_or_path, dataset_config)
@@ -407,13 +356,9 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
 # Load the evaluation metrics
 # metric_perplexity = evaluate.load("perplexity")
 metric_accuracy = evaluate.load("accuracy")
-# metric_f1 = evaluate.load("f1")
+metric_f1 = evaluate.load("f1")
 # metric_rouge = evaluate.load("rouge")
 # metric_bleu = evaluate.load("bleu")
-
-# These variables will store batch-level metric results
-batch_accuracies = []
-# batch_f1_scores = []
 
 
 # Compute the evaluation metrics
@@ -424,28 +369,13 @@ def compute_metrics(eval_pred, compute_result=False):
     labels = labels.flatten()
 
     if compute_result:
-        # When compute_result is True, compute and return the final metrics
-        global_accuracy = sum(batch_accuracies) / len(batch_accuracies)
-        # global_f1 = sum(batch_f1_scores) / len(batch_f1_scores)
         return {
-            "accuracy": global_accuracy,
-            # "f1": global_f1
+            "accuracy": metric_accuracy.compute()["accuracy"],
+            "f1_score": metric_f1.compute()["f1"]
         }
     else:
-        # Compute the accuracy for the current batch
-        batch_accuracy = metric_accuracy.compute(
-            predictions=predictions, references=labels
-        )["accuracy"]
-        # Store the batch accuracy
-        batch_accuracies.append(batch_accuracy)
-
-        # Compute the f1 for the current batch
-        # batch_f1 = metric_f1.compute(
-        #     predictions=predictions, references=labels, average="micro"
-        # )["f1"]
-        # # Store the batch f1
-        # batch_f1_scores.append(batch_f1)
-
+        metric_accuracy.add_batch(predictions=predictions, references=labels)
+        metric_f1.add_batch(predictions=predictions, references=labels)
         return {}
 
 
@@ -489,6 +419,66 @@ def hp_space(trial: optuna.Trial) -> dict:
     return space
 
 
+# Set up the tokenizer
+def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
+    # Load tokenizer
+    print_if_main_process(f"Loading the tokenizer from {model_name_or_path}...")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path)
+    tokenizer.pad_token_id = tokenizer.eos_token_id  # Set pad token to end-of-sequence token
+    tokenizer.padding_side = 'right'
+    tokenizer.model_max_length = args.context_length
+
+    # Set up truncation and padding
+    tokenizer.set_truncation_and_padding(
+        padding_strategy=PaddingStrategy.LONGEST,
+        truncation_strategy=TruncationStrategy.LONGEST_FIRST,
+        max_length=args.context_length,
+        stride=stride,
+        pad_to_multiple_of=8,
+    )
+
+    # Add special tokens to the tokenizer
+    additional_special_tokens = [
+        "<|im_start|>", "<|im_end|>",
+        # "<|named_user|>",  # Named user. For future use. Example: "<|im_start|><|named_user|>Alice\n<Alice's message><|im_end|>"
+        # "<|named_assistant|>",  # Named assistant. For future use. Example: "<|im_start|><|named_assistant|>Assistant George\n<Assistant George's message><|im_end|>"
+        # "<|mem_start|>", "<|mem_end|>",  # Memory start and end tokens. For future use. Store hidden information in the context, e.g. "<|mem_start|>Alice's birthday is 12th May.<|mem_end|>"
+        # "<|pause|>",  # Pause token. For future use. See https://arxiv.org/abs/2310.02226.pdf Think before you speak: Training Language Models With Pause Tokens
+    ]
+
+    # Add additional special tokens from args
+    if args.additional_special_tokens:
+        additional_special_tokens += args.additional_special_tokens
+
+    # Add <|spare_1|>, <|spare_2|>, etc. to the tokenizer to make the vocab size a multiple of 8
+    for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1):
+        additional_special_tokens.append(f"<|spare_{i}|>")
+
+    tokenizer.add_special_tokens(
+        {"additional_special_tokens": additional_special_tokens},
+        replace_additional_special_tokens=False,
+    )
+
+    if args.additional_special_tokens:
+        print_if_main_process(f"Additional special tokens added to the tokenizer.")
+
+        # Print the token IDs of the special tokens
+        for token in args.additional_special_tokens:
+            print_if_main_process(f"{token}: {tokenizer(token)}")
+
+    # Assert that the vocab size is a multiple of 8
+    assert (
+        len(tokenizer)
+    ) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code, dumbass!"
+
+    # Set up the chat template
+    if args.chat_template:
+        tokenizer.chat_template = args.chat_template
+
+    return tokenizer
+
+
 # Initialize the model
 def model_init(trial: optuna.Trial) -> PreTrainedModel:
     if trial is not None:
@@ -498,47 +488,55 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
 
     print_if_main_process("Initialising the model...")
 
-    # Set the initial model configuration
-    model_config = dict(
-        hidden_size=args.hidden_size,
-        intermediate_size=args.intermediate_size,
-        num_hidden_layers=args.hidden_layers,
-        num_attention_heads=args.attention_heads,
-        num_key_value_heads=args.num_key_value_heads,
-        max_position_embeddings=args.context_length,
-        use_cache=False if args.gradient_checkpointing else True,
-        pad_token_id=tokenizer.pad_token_id,
-        sliding_window=None,
-        torch_dtype=args.dtype,
-        attn_implementation="flash_attention_2",
-    )
+    # If a pretrained model is provided, load it
+    if args.pretrained_model_name_or_path:
+        model = AutoModelForCausalLM.from_pretrained(
+            args.pretrained_model_name_or_path,
+            torch_dtype=args.dtype,
+            attn_implementation="flash_attention_2",
+        )
+    else:
+        # Set the initial model configuration
+        model_config = dict(
+            hidden_size=args.hidden_size,
+            intermediate_size=args.intermediate_size,
+            num_hidden_layers=args.hidden_layers,
+            num_attention_heads=args.attention_heads,
+            num_key_value_heads=args.num_key_value_heads,
+            max_position_embeddings=args.context_length,
+            use_cache=False if args.gradient_checkpointing else True,
+            pad_token_id=tokenizer.pad_token_id,
+            sliding_window=None,
+            torch_dtype=args.dtype,
+            attn_implementation="flash_attention_2",
+        )
 
-    # If this is a trial, set the hyperparameters from the trial
-    if trial is not None:
-        space = trial.params
+        # If this is a trial, set the hyperparameters from the trial
+        if trial is not None:
+            space = trial.params
 
-        if "dtype" in space:
-            model_config["torch_dtype"] = space["dtype"]
-        if "num_attention_heads" in space:
-            model_config["num_attention_heads"] = space["num_attention_heads"]
-        if "num_key_value_heads" in space:
-            model_config["num_key_value_heads"] = space["num_key_value_heads"]
-        if "hidden_layers" in space:
-            model_config["num_hidden_layers"] = space["hidden_layers"]
-        if "hidden_size" in space:
-            model_config["hidden_size"] = space["hidden_size"]
+            if "dtype" in space:
+                model_config["torch_dtype"] = space["dtype"]
+            if "num_attention_heads" in space:
+                model_config["num_attention_heads"] = space["num_attention_heads"]
+            if "num_key_value_heads" in space:
+                model_config["num_key_value_heads"] = space["num_key_value_heads"]
+            if "hidden_layers" in space:
+                model_config["num_hidden_layers"] = space["hidden_layers"]
+            if "hidden_size" in space:
+                model_config["hidden_size"] = space["hidden_size"]
 
-    model_config = MistralConfig(**model_config)
-    model = MistralForCausalLM(model_config)
+        model_config = AutoConfig(**model_config)
+        model = AutoModelForCausalLM(model_config)
 
-    # If the dtype is float16 or bfloat16, convert the model to that dtype
-    if model_config.torch_dtype == "float16" or model_config.torch_dtype == torch.float16:
-        model = model.half()
-    elif model_config.torch_dtype == "bfloat16" or model_config.torch_dtype == torch.bfloat16:
-        model = model.to(torch.bfloat16)
+        # If the dtype is float16 or bfloat16, convert the model to that dtype
+        if model_config.torch_dtype == "float16" or model_config.torch_dtype == torch.float16:
+            model = model.half()
+        elif model_config.torch_dtype == "bfloat16" or model_config.torch_dtype == torch.bfloat16:
+            model = model.to(torch.bfloat16)
 
-    # Resize the token embeddings to match the tokenizer
-    model.resize_token_embeddings(len(tokenizer))
+        # Resize the token embeddings to match the tokenizer
+        model.resize_token_embeddings(len(tokenizer))
 
     # Move the model to the device
     model = model.to(device)
@@ -571,10 +569,22 @@ os.environ["WANDB_LOG_MODEL"] = "false"
 # turn off watch to log faster
 os.environ["WANDB_WATCH"] = "false"
 
+# Tokenizer setup
+tokenizer = None
+if args.resume_from_checkpoint:
+    # Load the tokenizer from the checkpoint
+    tokenizer = tokenizer_init(f"{results_dir}/model")
+elif args.pretrained_model_name_or_path:
+    # Load the tokenizer from the pretrained model
+    tokenizer = tokenizer_init(args.pretrained_model_name_or_path)
+elif args.template_model_name:
+    # Load the tokenizer from the template model
+    tokenizer = tokenizer_init(args.template_model_name)
+
 # TrainingArguments setup
-eval_steps = (1 / 200) / num_train_epochs
+eval_steps = (1 / 1000) / num_train_epochs
 # eval_steps = 10
-save_steps = eval_steps * 20
+save_steps = eval_steps * 100
 logging_steps = 5
 
 training_args = SFTConfig(
