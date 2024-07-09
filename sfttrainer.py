@@ -4,9 +4,6 @@ import os
 os.environ['TORCH_NCCL_BLOCKING_WAIT'] = '1'
 os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
 
-# Set the CUDA_VISIBLE_DEVICES environment variable before importing torch
-os.environ["CUDA_VISIBLE_DEVICES"] = "1,0"
-
 # Enable parallelism in the tokenizers library
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
@@ -35,12 +32,16 @@ class KeyValueAction(argparse.Action):
 
 
 # Set up command-line arguments with argparse
-parser = argparse.ArgumentParser(description="Train a Mistral model on a Wikipedia dataset.")
+parser = argparse.ArgumentParser(description="Train a model using the SFTTrainer")
 
 parser.add_argument("--project_name", type=str, default="mini-mistral", help="Name of the project")
-parser.add_argument("--output_dir", type=str,
-                    default=f"/mnt/ai-stuff-fast/training-results", help="Directory to save the results")
+parser.add_argument(
+    "--output_dir", type=str, default=f"./results", help="Directory to save the results"
+)
+
+# Add the arguments for the distributed training settings
 parser.add_argument("--num_cpus", type=int, default=None, help="Number of CPUs to use")
+parser.add_argument("--gpu_devices", type=str, default="0", help="GPU devices to use")
 
 # Add the arguments for the model settings
 parser.add_argument("--pretrained_model_name_or_path", type=str, default=None, help="Name or path of the pretrained model")
@@ -66,6 +67,11 @@ parser.add_argument("--dataset_packing", action="store_true", help="Enable datas
 parser.add_argument("--save_prepared_dataset", action="store_true", help="Save the prepared dataset")
 parser.add_argument("--save_prepared_dataset_only", action="store_true", help="Save the prepared dataset and exit")
 parser.add_argument("--dataset_save_path", type=str, default="dataset", help="Path to save the prepared dataset")
+
+# Add the arguments for the tokenization settings
+parser.add_argument("--additional_special_tokens", type=str, nargs="+",
+                    default=None, help="Additional special tokens to add to the tokenizer")
+parser.add_argument("--chat_template", type=str, default=None, help="Chat template for chatbot training")
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -180,11 +186,21 @@ parser.add_argument("--grokfast_ema_alpha_range", type=float, nargs=2,
 parser.add_argument("--grokfast_ema_lambda_range", type=float, nargs=2,
                     default=[1.0, 3.0], help="Range of lambda values to use for hyperparameter search")
 
-parser.add_argument("--additional_special_tokens", type=str, nargs="+",
-                    default=None, help="Additional special tokens to add to the tokenizer")
-parser.add_argument("--chat_template", type=str, default=None, help="Chat template for chatbot training")
-
 args = parser.parse_args()
+
+# Set the number of CPUs
+if args.num_cpus is None:
+    args.num_cpus = os.cpu_count()
+
+# Set devices
+os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_devices
+import torch
+
+if torch.cuda.is_available():
+    device = torch.device("cuda")
+else:
+    raise RuntimeError("No CUDA device found. Please use a CUDA-enabled device for training.")
+
 
 import json
 import time
@@ -192,7 +208,6 @@ import warnings
 
 import evaluate
 import optuna
-import torch
 from datasets import DatasetDict, load_dataset
 from transformers import (
     AutoTokenizer,
@@ -245,16 +260,6 @@ if not is_main_process:
 
 timestamp = time.strftime("%Y%m%d-%H%M%S")
 
-# Use Mistral-7B-v0.1 as a template for the model settings
-template_model_name = args.template_model_name
-
-# Dataset settings
-dataset_name_or_path = args.dataset_name_or_path  # Name of the dataset to use
-dataset_config = args.dataset_config  # Configuration of the dataset to use
-dataset_size = args.dataset_size  # Number of examples to use from the dataset
-dataset_split = args.dataset_split  # Percentage of examples to use for training
-stride = args.stride  # Stride for splitting the input into multiple sequences
-
 # Directory to save the results
 if args.resume_from_checkpoint:
     results_dir = args.output_dir  # Results path is passed on the command line when resuming from a checkpoint
@@ -263,21 +268,12 @@ else:
     results_dir = f"{args.output_dir}/training-run-{timestamp}"
 
 # Training settings
-seed = args.seed  # Random seed for reproducibility
 # Set dtype to the appropriate torch dtype
 args.dtype = (
     torch.bfloat16 if args.dtype == "bfloat16"
     else torch.float16 if args.dtype == "float16"
     else torch.float32
 )
-learning_rate = args.learning_rate  # Learning rate for the AdamW optimizer
-num_train_epochs = args.num_train_epochs  # Number of training epochs
-per_device_train_batch_size = args.per_device_train_batch_size  # Batch size per GPU/TPU core/CPU for training
-gradient_accumulation_steps = args.gradient_accumulation_steps  # Number of steps to accumulate gradients for
-warmup_ratio = args.warmup_ratio  # Ratio of the number of warmup steps to the total number of training steps
-warmup_steps = args.warmup_steps  # Number of warmup steps
-max_grad_norm = args.max_grad_norm  # Maximum gradient norm
-gradient_checkpointing = args.gradient_checkpointing  # Enable gradient checkpointing
 
 # Optuna study settings
 study_name = args.study_name  # Name of the Optuna study
@@ -304,13 +300,7 @@ if args.run_hyperparameter_search:
     results_dir = study_dir
 
 # Set seed for reproducibility
-set_seed(seed)
-
-# Set device
-if torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    raise RuntimeError("No CUDA device found. Please use a CUDA-enabled device for training.")
+set_seed(args.seed)
 
 # Create the results directory
 if not os.path.exists(results_dir):
@@ -318,13 +308,15 @@ if not os.path.exists(results_dir):
 
 print(f"Using device: {device}")
 
-# Load the dataset
-print_if_main_process(f"Loading the dataset from {dataset_name_or_path} ({dataset_config})...")
-dataset = load_dataset(dataset_name_or_path, dataset_config)
-
 
 # Prepare the dataset
-def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: float, shuffle: bool = False, num_procs: int = 1, batch_size: int = 1000) -> DatasetDict:
+def prepare_dataset(
+    dataset: DatasetDict,
+    dataset_split: float,
+    dataset_size: int,
+    shuffle: bool = False,
+    batch_size: int = 1000,
+) -> DatasetDict:
     print_if_main_process("Preparing the dataset...")
     # If the dataset is already split into train and test and/or validate
     if "validation" in dataset:
@@ -348,10 +340,11 @@ def prepare_dataset(dataset: DatasetDict, dataset_size: int, dataset_split: floa
         print_if_main_process("Splitting the dataset into training and evaluation sets...")
         print_if_main_process("Training set size:", round(dataset_size * dataset_split))
         print_if_main_process("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=seed, shuffle=shuffle, writer_batch_size=batch_size)
+        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=args.seed, shuffle=shuffle, writer_batch_size=batch_size)
 
         # Return the training and evaluation datasets
         return prepared_dataset
+
 
 # Load the evaluation metrics
 # metric_perplexity = evaluate.load("perplexity")
@@ -434,7 +427,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
         padding_strategy=PaddingStrategy.LONGEST,
         truncation_strategy=TruncationStrategy.LONGEST_FIRST,
         max_length=args.context_length,
-        stride=stride,
+        stride=args.stride,
         pad_to_multiple_of=8,
     )
 
@@ -582,7 +575,7 @@ elif args.template_model_name:
     tokenizer = tokenizer_init(args.template_model_name)
 
 # TrainingArguments setup
-eval_steps = (1 / 1000) / num_train_epochs
+eval_steps = (1 / 1000) / args.num_train_epochs
 # eval_steps = 10
 save_steps = eval_steps * 100
 logging_steps = 5
@@ -590,16 +583,16 @@ logging_steps = 5
 training_args = SFTConfig(
     output_dir=results_dir,
     run_name=f"run-{timestamp}",
-    num_train_epochs=num_train_epochs,
+    num_train_epochs=args.num_train_epochs,
     auto_find_batch_size=args.auto_find_batch_size,
     per_device_train_batch_size=args.per_device_train_batch_size,
     per_device_eval_batch_size=args.per_device_eval_batch_size,
-    gradient_accumulation_steps=gradient_accumulation_steps,
-    gradient_checkpointing=gradient_checkpointing,
-    max_grad_norm=max_grad_norm,
-    warmup_ratio=warmup_ratio,
-    warmup_steps=warmup_steps,
-    learning_rate=learning_rate,
+    gradient_accumulation_steps=args.gradient_accumulation_steps,
+    gradient_checkpointing=args.gradient_checkpointing,
+    max_grad_norm=args.max_grad_norm,
+    warmup_ratio=args.warmup_ratio,
+    warmup_steps=args.warmup_steps,
+    learning_rate=args.learning_rate,
     lr_scheduler_type=args.lr_scheduler_type,
     lr_scheduler_kwargs=args.lr_scheduler_args,
     optim=args.optimizer,
@@ -612,8 +605,8 @@ training_args = SFTConfig(
     logging_strategy="steps",
     logging_steps=logging_steps,
     load_best_model_at_end=False,
-    seed=seed,
-    data_seed=seed,
+    seed=args.seed,
+    data_seed=args.seed,
     bf16=(args.dtype == torch.bfloat16),
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
@@ -638,13 +631,30 @@ training_args = SFTConfig(
 if args.eval_accumulation_steps:
     training_args.eval_accumulation_steps = args.eval_accumulation_steps
 
-prepared_dataset = prepare_dataset(dataset, dataset_size, dataset_split, args.shuffle, args.num_cpus // 2, args.dataset_batch_size)
+# Load the dataset
+print_if_main_process(
+    f"Loading the dataset from {args.dataset_name_or_path} ({args.dataset_config})..."
+)
+dataset = load_dataset(args.dataset_name_or_path, args.dataset_config)
+
+# Load the dataset
+print_if_main_process(f"Loading the dataset from {args.dataset_name_or_path} ({args.dataset_config})...")
+dataset = load_dataset(args.dataset_name_or_path, args.dataset_config)
+
+# Prepare the dataset
+dataset = prepare_dataset(
+    dataset=dataset,
+    dataset_split=args.dataset_split,
+    dataset_size=args.dataset_size,
+    shuffle=args.shuffle,
+    batch_size=args.dataset_batch_size,
+)
 
 # Save the prepared dataset
 if args.save_prepared_dataset:
     # Only save if main process
     if is_main_process:
-        prepared_dataset.save_to_disk(args.dataset_save_path)
+        dataset.save_to_disk(args.dataset_save_path)
     print_if_main_process(f"Prepared dataset saved to {args.dataset_save_path}")
     if args.save_prepared_dataset_only:
         print_if_main_process("Exiting...")
@@ -652,8 +662,19 @@ if args.save_prepared_dataset:
 
 # Save the dataset configuration
 with open(f"{results_dir}/dataset_config.json", "w") as f:
-    json.dump({"dataset_name_or_path": dataset_name_or_path, "dataset_config": dataset_config,
-              "dataset_size": len(prepared_dataset), "dataset_split": dataset_split, "stride": stride}, f, indent=2)
+    json.dump(
+        {
+            "dataset_name_or_path": args.dataset_name_or_path,
+            "dataset_config": args.dataset_config,
+            "dataset_split": args.dataset_split,
+            "dataset_size": len(dataset),
+            "shuffle": args.shuffle,
+            "batch_size": args.dataset_batch_size,
+            "stride": args.stride,
+        },
+        f,
+        indent=2,
+    )
 
 # Free up some memory
 del dataset
@@ -661,8 +682,8 @@ del dataset
 # Initialize the trainer
 trainer = SFTTrainer(
     args=training_args,
-    train_dataset=prepared_dataset["train"],
-    eval_dataset=prepared_dataset["test"],
+    train_dataset=dataset["train"],
+    eval_dataset=dataset["test"],
     tokenizer=tokenizer,
     model_init=model_init,
     compute_metrics=compute_metrics,
@@ -681,16 +702,18 @@ if args.early_stopping:
 def run_training():
     # Print the hyperparameters
     print_if_main_process("Hyperparameters:")
-    print_if_main_process(f"  Learning rate: {learning_rate}")
+    print_if_main_process(f"  Learning rate: {args.learning_rate}")
     print_if_main_process(f"  Learning rate scheduler: {args.lr_scheduler_type}")
-    print_if_main_process(f"  Per-device train batch size: {per_device_train_batch_size}")
-    print_if_main_process(f"  Epochs: {num_train_epochs}")
-    if warmup_steps > 0:
-        print_if_main_process(f"  Warmup steps: {warmup_steps}")
+    print_if_main_process(f"  Per-device train batch size: {args.per_device_train_batch_size}")
+    print_if_main_process(f"  Epochs: {args.num_train_epochs}")
+    if args.warmup_steps > 0:
+        print_if_main_process(f"  Warmup steps: {args.warmup_steps}")
     else:
-        print_if_main_process(f"  Warmup ratio: {warmup_ratio}")
+        print_if_main_process(f"  Warmup ratio: {args.warmup_ratio}")
     print_if_main_process(f"  Attention heads: {args.attention_heads}")
-    print_if_main_process(f"  Gradient accumulation steps: {gradient_accumulation_steps}")
+    print_if_main_process(
+        f"  Gradient accumulation steps: {args.gradient_accumulation_steps}"
+    )
     print_if_main_process(f"  Weight decay: {args.weight_decay}")
     print_if_main_process(f"  Results directory: {results_dir}")
     print_if_main_process(f"  Optimizer: {args.optimizer}")
@@ -698,14 +721,14 @@ def run_training():
 
     # Save the hyperparameters to a file
     hyperparameters = {
-        "learning_rate": learning_rate,
+        "learning_rate": args.learning_rate,
         "lr_scheduler_type": args.lr_scheduler_type,
-        "per_device_train_batch_size": per_device_train_batch_size,
-        "num_train_epochs": num_train_epochs,
-        "warmup_ratio": warmup_ratio if warmup_steps == 0 else 0,
-        "warmup_steps": warmup_steps,
+        "per_device_train_batch_size": args.per_device_train_batch_size,
+        "num_train_epochs": args.num_train_epochs,
+        "warmup_ratio": args.warmup_ratio if args.warmup_steps == 0 else 0,
+        "warmup_steps": args.warmup_steps,
         "attention_heads": args.attention_heads,
-        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "gradient_accumulation_steps": args.gradient_accumulation_steps,
         "weight_decay": args.weight_decay,
         "results_dir": results_dir,
         "optim": args.optimizer,
