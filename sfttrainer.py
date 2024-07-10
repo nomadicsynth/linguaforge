@@ -352,8 +352,8 @@ def prepare_dataset(
 
 
 # Load the evaluation metrics
-# metric_perplexity = evaluate.load("perplexity")
 metric_accuracy = evaluate.load("accuracy")
+metric_perplexity = evaluate.load("perplexity")
 # metric_f1 = evaluate.load("f1")
 # metric_rouge = evaluate.load("rouge")
 # metric_bleu = evaluate.load("bleu")
@@ -364,6 +364,7 @@ def compute_metrics(eval_pred, compute_result=False):
     if compute_result:
         return {
             "accuracy": metric_accuracy.compute()["accuracy"],
+            "perplexity": metric_perplexity.compute()["perplexity"],
             # "f1": metric_f1.compute(average="micro")["f1"],
         }
     else:
@@ -373,6 +374,7 @@ def compute_metrics(eval_pred, compute_result=False):
         labels = labels.flatten()
 
         metric_accuracy.add_batch(predictions=predictions, references=labels)
+        metric_perplexity.add_batch(logits=logits, references=labels)
         # metric_f1.add_batch(predictions=predictions, references=labels)
         return {}
 
