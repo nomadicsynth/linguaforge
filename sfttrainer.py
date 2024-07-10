@@ -224,6 +224,10 @@ from transformers.utils import PaddingStrategy, logging
 from trl import SFTConfig, SFTTrainer, set_seed
 import wandb
 
+import mlflow
+
+mlflow.set_tracking_uri("http://127.0.0.1:8090")
+
 # Ignore the warning about gathering scalars
 warnings.filterwarnings(
     "ignore",
