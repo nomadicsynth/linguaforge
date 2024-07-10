@@ -34,7 +34,7 @@ class KeyValueAction(argparse.Action):
 # Set up command-line arguments with argparse
 parser = argparse.ArgumentParser(description="Train a model using the SFTTrainer")
 
-parser.add_argument("--project_name", type=str, default="mini-mistral", help="Name of the project")
+parser.add_argument("--project_name", type=str, required=True, help="Name of the project")
 parser.add_argument(
     "--output_dir", type=str, default=f"./results", help="Directory to save the results"
 )
@@ -44,8 +44,9 @@ parser.add_argument("--num_cpus", type=int, default=None, help="Number of CPUs t
 parser.add_argument("--gpu_devices", type=str, default="0", help="GPU devices to use")
 
 # Add the arguments for the model settings
-parser.add_argument("--pretrained_model_name_or_path", type=str, default=None, help="Name or path of the pretrained model")
-parser.add_argument("--template_model_name", type=str, default="mistralai/Mistral-7B-v0.1", help="Template model name")
+model_name_group = parser.add_mutually_exclusive_group(required=True)
+model_name_group.add_argument("--pretrained_model_name_or_path", type=str, help="Name or path of the pretrained model")
+model_name_group.add_argument("--template_model_name", type=str, help="Template model name")
 parser.add_argument("--resume_from_checkpoint", action="store_true", help="Resume training from the last checkpoint")
 parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
@@ -94,6 +95,7 @@ parser.add_argument("--lr_scheduler_args", nargs="+", action=KeyValueAction, hel
 parser.add_argument(
     "--num_train_epochs", type=int, default=5, help="Number of training epochs"
 )
+parser.add_argument("--evals_per_epoch", type=int, default=1, help="Number of evaluations per epoch")
 parser.add_argument("--auto_find_batch_size", action="store_true", help="Automatically find the batch size")
 parser.add_argument("--per_device_train_batch_size", type=int, default=4,
                     help="Batch size per GPU/TPU core/CPU for training")
@@ -303,7 +305,7 @@ if args.run_hyperparameter_search:
 set_seed(args.seed)
 
 # Create the results directory
-if not os.path.exists(results_dir):
+if is_main_process and not os.path.exists(results_dir):
     os.makedirs(results_dir)
 
 print(f"Using device: {device}")
@@ -323,6 +325,9 @@ def prepare_dataset(
         dataset["test"] = dataset["validation"]
         del dataset["validation"]
     if "test" in dataset:
+        if dataset_size > 0:
+            print_if_main_process("Selecting", dataset_size, "examples from the training set...")
+            dataset["train"] = dataset["train"].shuffle(args.seed).select(range(dataset_size), writer_batch_size=batch_size)
         return dataset
     else:
         prepared_dataset = None
@@ -349,26 +354,26 @@ def prepare_dataset(
 # Load the evaluation metrics
 # metric_perplexity = evaluate.load("perplexity")
 metric_accuracy = evaluate.load("accuracy")
-metric_f1 = evaluate.load("f1")
+# metric_f1 = evaluate.load("f1")
 # metric_rouge = evaluate.load("rouge")
 # metric_bleu = evaluate.load("bleu")
 
 
 # Compute the evaluation metrics
 def compute_metrics(eval_pred, compute_result=False):
-    # Unpack the predictions and labels from the eval_pred
-    logits, labels = eval_pred
-    predictions = torch.argmax(logits, dim=-1).flatten()
-    labels = labels.flatten()
-
     if compute_result:
         return {
             "accuracy": metric_accuracy.compute()["accuracy"],
-            "f1_score": metric_f1.compute()["f1"]
+            # "f1": metric_f1.compute(average="micro")["f1"],
         }
     else:
+        # Unpack the predictions and labels from the eval_pred
+        logits, labels = eval_pred
+        predictions = torch.argmax(logits, dim=-1).flatten()
+        labels = labels.flatten()
+
         metric_accuracy.add_batch(predictions=predictions, references=labels)
-        metric_f1.add_batch(predictions=predictions, references=labels)
+        # metric_f1.add_batch(predictions=predictions, references=labels)
         return {}
 
 
@@ -483,11 +488,19 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
 
     # If a pretrained model is provided, load it
     if args.pretrained_model_name_or_path:
-        model = AutoModelForCausalLM.from_pretrained(
-            args.pretrained_model_name_or_path,
-            torch_dtype=args.dtype,
-            attn_implementation="flash_attention_2",
-        )
+        # If the dtype is float16 or bfloat16, convert the model to that dtype
+        if args.dtype == torch.float16:  # TODO: Error about trying to upscale FP16 gradients. Investigate later.
+            model = AutoModelForCausalLM.from_pretrained(
+                args.pretrained_model_name_or_path,
+                torch_dtype=args.dtype,
+                attn_implementation="flash_attention_2",
+            ).to(device)
+        elif args.dtype == torch.bfloat16:
+            model = AutoModelForCausalLM.from_pretrained(
+                args.pretrained_model_name_or_path,
+                torch_dtype=args.dtype,
+                attn_implementation="flash_attention_2",
+            )  # .to(device)
     else:
         # Set the initial model configuration
         model_config = dict(
@@ -523,13 +536,13 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
         model = AutoModelForCausalLM(model_config)
 
         # If the dtype is float16 or bfloat16, convert the model to that dtype
-        if model_config.torch_dtype == "float16" or model_config.torch_dtype == torch.float16:
+        if model_config.torch_dtype == torch.float16:
             model = model.half()
-        elif model_config.torch_dtype == "bfloat16" or model_config.torch_dtype == torch.bfloat16:
+        elif model_config.torch_dtype == torch.bfloat16:
             model = model.to(torch.bfloat16)
 
-        # Resize the token embeddings to match the tokenizer
-        model.resize_token_embeddings(len(tokenizer))
+    # Resize the token embeddings to match the tokenizer
+    model.resize_token_embeddings(len(tokenizer))
 
     # Move the model to the device
     model = model.to(device)
@@ -575,10 +588,10 @@ elif args.template_model_name:
     tokenizer = tokenizer_init(args.template_model_name)
 
 # TrainingArguments setup
-eval_steps = (1 / 1000) / args.num_train_epochs
+eval_steps = (1 / args.evals_per_epoch) / args.num_train_epochs
 # eval_steps = 10
 save_steps = eval_steps * 100
-logging_steps = 5
+logging_steps = eval_steps
 
 training_args = SFTConfig(
     output_dir=results_dir,
@@ -675,9 +688,6 @@ with open(f"{results_dir}/dataset_config.json", "w") as f:
         f,
         indent=2,
     )
-
-# Free up some memory
-del dataset
 
 # Initialize the trainer
 trainer = SFTTrainer(
