@@ -17,5 +17,9 @@ trl
 # packaging
 # wheel
 
+# Install transformers from my forked repo at https://github.com/nomadicsynth/transformers.git
+# git clone https://github.com/nomadicsynth/transformers.git ./transformers-grokfast
+# pip install -e ./transformers-grokfast
+
 # Install the following packages after installing the rest
 # pip install flash-attn --no-build-isolation
