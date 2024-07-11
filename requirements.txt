@@ -1,0 +1,26 @@
+accelerate
+bitsandbytes
+datasets
+deepspeed
+python-dotenv
+evaluate
+mpi4py
+optuna
+plotly
+scikit-learn
+torch
+transformers @ git+https://github.com/nomadicsynth/transformers.git
+trl
+wandb
+
+# Install the following packages before installing the above packages
+# ninja
+# packaging
+# wheel
+
+# Install transformers from my forked repo at https://github.com/nomadicsynth/transformers.git
+# git clone https://github.com/nomadicsynth/transformers.git ./transformers-grokfast
+# pip install -e ./transformers-grokfast
+
+# Install the following packages after installing the rest
+# pip install flash-attn --no-build-isolation

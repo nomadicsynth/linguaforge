@@ -1,0 +1,10 @@
+.venv/
+.vscode/
+results/
+__pycache__/
+result-backup/
+results-backup/
+.env
+console_output.txt
+wandb/
+transformers-grokfast/
