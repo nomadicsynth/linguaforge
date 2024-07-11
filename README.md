@@ -77,7 +77,4 @@ Contributions to `linguaforge` are welcome. Please ensure to follow the project'
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
-The Apache License 2.0 is a permissive license that is conducive to commercial use, modification, distribution, and private use. It also provides an express grant of patent usage rights from contributors to users.
-
 For more information on the Apache License 2.0, please visit [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0).
-
