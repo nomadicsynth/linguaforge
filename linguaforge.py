@@ -606,8 +606,23 @@ elif args.evals_per_epoch:
 else:
     eval_steps = 100
 
-save_steps = eval_steps * 100 if not args.save_steps else args.save_steps
-logging_steps = eval_steps if not args.logging_steps else args.logging_steps
+training_kwargs.update({
+    "eval_strategy": "steps",
+    "eval_steps": eval_steps
+})
+print_if_main_process(f"eval_steps = {eval_steps}")
+
+training_kwargs.update({
+    "save_strategy": "steps" if args.save_steps is not None else "no",
+    "save_steps": args.save_steps
+})
+print_if_main_process(f"save_steps = {args.save_steps}")
+
+training_kwargs.update({
+    "logging_strategy": "steps",
+    "logging_steps": eval_steps if args.logging_steps is None else args.logging_steps,
+})
+print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
 
 # Add the GrokFast options if they're passed
 if args.grokfast_ema:
@@ -619,6 +634,7 @@ if args.grokfast_ema:
 
 training_args = SFTConfig(
     output_dir=results_dir,
+    logging_dir=f"{results_dir}/logs/",
     run_name=f"run-{timestamp}",
     num_train_epochs=args.num_train_epochs,
     auto_find_batch_size=args.auto_find_batch_size,
@@ -634,13 +650,6 @@ training_args = SFTConfig(
     lr_scheduler_kwargs=args.lr_scheduler_args,
     optim=args.optimizer,
     weight_decay=args.weight_decay,
-    eval_strategy="steps",
-    eval_steps=eval_steps,
-    save_strategy="steps",
-    save_steps=save_steps,
-    logging_dir=f"{results_dir}/logs/",
-    logging_strategy="steps",
-    logging_steps=logging_steps,
     load_best_model_at_end=False,
     seed=args.seed,
     data_seed=args.seed,
