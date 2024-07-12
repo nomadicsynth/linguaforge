@@ -616,7 +616,8 @@ else:
     training_kwargs.update({"eval_strategy": "epoch"})
 
 print_if_main_process(f"eval_strategy = {training_kwargs["eval_strategy"]}")
-print_if_main_process(f"eval_steps = {training_kwargs["eval_steps"]}")
+if training_kwargs["eval_strategy"] == "steps":
+    print_if_main_process(f"eval_steps = {training_kwargs["eval_steps"]}")
 
 if args.save_steps is None:
     training_kwargs.update({"save_strategy": "no"})
@@ -626,7 +627,8 @@ else:
     training_kwargs.update({"save_strategy": "steps", "save_steps": args.save_steps})
     
 print_if_main_process(f"save_strategy = {training_kwargs["save_strategy"]}")
-print_if_main_process(f"save_steps = {training_kwargs["save_steps"]}")
+if training_kwargs["save_strategy"] == "steps":
+    print_if_main_process(f"save_steps = {training_kwargs["save_steps"]}")
 
 if args.logging_steps is None:
     training_kwargs.update({"logging_strategy": "no"})
@@ -639,7 +641,8 @@ else:
     })
 
 print_if_main_process(f"logging_strategy = {training_kwargs["logging_strategy"]}")
-print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
+if training_kwargs["logging_strategy"] == "steps":
+    print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
 
 # Add the GrokFast options if they're passed
 if args.grokfast_ema:
