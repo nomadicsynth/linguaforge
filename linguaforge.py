@@ -600,17 +600,22 @@ if args.wandb:
 training_kwargs = {}
 
 if args.eval_steps:
-    eval_steps = args.eval_steps
+    training_kwargs.update({
+        "eval_strategy": "steps",
+        "eval_steps": args.eval_steps
+    })
 elif args.evals_per_epoch:
-    eval_steps = (1 / args.evals_per_epoch) / args.num_train_epochs
+    if args.evals_per_epoch == 1:
+        training_kwargs.update({"eval_strategy": "epoch"})
+    else:
+        training_kwargs.update({
+            "eval_strategy": "steps",
+            "eval_steps": (1 / args.evals_per_epoch) / args.num_train_epochs
+        })
 else:
-    eval_steps = 100
+    training_kwargs.update({"eval_strategy": "epoch"})
 
-training_kwargs.update({
-    "eval_strategy": "steps",
-    "eval_steps": eval_steps
-})
-print_if_main_process(f"eval_steps = {eval_steps}")
+print_if_main_process(f"eval_steps = {training_kwargs["eval_steps"]}")
 
 training_kwargs.update({
     "save_strategy": "steps" if args.save_steps is not None else "no",
@@ -620,7 +625,7 @@ print_if_main_process(f"save_steps = {args.save_steps}")
 
 training_kwargs.update({
     "logging_strategy": "steps",
-    "logging_steps": eval_steps if args.logging_steps is None else args.logging_steps,
+    "logging_steps": training_kwargs["eval_steps"] if args.logging_steps is None else args.logging_steps,
 })
 print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
 
