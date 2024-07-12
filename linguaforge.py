@@ -615,18 +615,30 @@ elif args.evals_per_epoch:
 else:
     training_kwargs.update({"eval_strategy": "epoch"})
 
+print_if_main_process(f"eval_strategy = {training_kwargs["eval_strategy"]}")
 print_if_main_process(f"eval_steps = {training_kwargs["eval_steps"]}")
 
-training_kwargs.update({
-    "save_strategy": "steps" if args.save_steps is not None else "no",
-    "save_steps": args.save_steps
-})
-print_if_main_process(f"save_steps = {args.save_steps}")
+if args.save_steps is None:
+    training_kwargs.update({"save_strategy": "no"})
+elif args.save_steps == 0:
+    training_kwargs.update({"save_strategy": "epoch"})
+else:
+    training_kwargs.update({"save_strategy": "steps", "save_steps": args.save_steps})
+    
+print_if_main_process(f"save_strategy = {training_kwargs["save_strategy"]}")
+print_if_main_process(f"save_steps = {training_kwargs["save_steps"]}")
 
-training_kwargs.update({
-    "logging_strategy": "steps",
-    "logging_steps": training_kwargs["eval_steps"] if args.logging_steps is None else args.logging_steps,
-})
+if args.logging_steps is None:
+    training_kwargs.update({"logging_strategy": "no"})
+elif args.logging_steps == 0:
+    training_kwargs.update({"logging_strategy": "epoch"})
+else:
+    training_kwargs.update({
+        "logging_strategy": "steps",
+        "logging_steps": training_kwargs["eval_steps"] if args.logging_steps is None else args.logging_steps,
+    })
+
+print_if_main_process(f"logging_strategy = {training_kwargs["logging_strategy"]}")
 print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
 
 # Add the GrokFast options if they're passed
