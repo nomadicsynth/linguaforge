@@ -133,6 +133,9 @@ parser.add_argument(
 )
 parser.add_argument("--optimizer_args", nargs="+", action=KeyValueAction, help="Arguments for the optimizer")
 
+# Logging settings
+parser.add_argument("--wandb", action="store_true", help="Enable logging to Weights & Biases")
+
 # Early stopping
 parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
 parser.add_argument("--early_stopping_patience", type=int, default=3, help="Number of epochs to wait before early stopping")
@@ -227,7 +230,6 @@ from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.trainer_utils import EvalPrediction
 from transformers.utils import PaddingStrategy, logging
 from trl import SFTConfig, SFTTrainer, set_seed
-import wandb
 
 # Ignore the warning about gathering scalars
 warnings.filterwarnings(
@@ -538,8 +540,8 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
             if "hidden_size" in space:
                 model_config["hidden_size"] = space["hidden_size"]
 
-        model_config = AutoConfig(**model_config)
-        model = AutoModelForCausalLM(model_config)
+        model_config = AutoConfig.from_pretrained(args.template_model_name, **model_config)
+        model = AutoModelForCausalLM.from_config(model_config)
 
         # If the dtype is float16 or bfloat16, convert the model to that dtype
         if model_config.torch_dtype == torch.float16:
@@ -572,15 +574,6 @@ def save_model(path: str) -> str:
     return model_path
 
 
-# set the wandb project where this run will be logged
-os.environ["WANDB_PROJECT"] = args.project_name
-
-# save your trained model checkpoint to wandb
-os.environ["WANDB_LOG_MODEL"] = "false"
-
-# turn off watch to log faster
-os.environ["WANDB_WATCH"] = "false"
-
 # Tokenizer setup
 tokenizer = None
 if args.resume_from_checkpoint:
@@ -593,7 +586,19 @@ elif args.template_model_name:
     # Load the tokenizer from the template model
     tokenizer = tokenizer_init(args.template_model_name)
 
+if args.wandb:
+    # set the wandb project where this run will be logged
+    os.environ["WANDB_PROJECT"] = args.project_name
+
+    # save your trained model checkpoint to wandb
+    os.environ["WANDB_LOG_MODEL"] = "false"
+
+    # turn off watch to log faster
+    os.environ["WANDB_WATCH"] = "false"
+
 # TrainingArguments setup
+training_kwargs = {}
+
 if args.eval_steps:
     eval_steps = args.eval_steps
 elif args.evals_per_epoch:
@@ -604,7 +609,6 @@ else:
 save_steps = eval_steps * 100 if not args.save_steps else args.save_steps
 logging_steps = eval_steps if not args.logging_steps else args.logging_steps
 
-training_kwargs = {}
 # Add the GrokFast options if they're passed
 if args.grokfast_ema:
     training_kwargs.update({
@@ -644,7 +648,7 @@ training_args = SFTConfig(
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
     fp16_full_eval=(args.dtype == torch.float16),
-    report_to="wandb",
+    report_to="wandb" if args.wandb else "none",
     remove_unused_columns=True,
     dataset_text_field="text",
     dataset_batch_size=args.dataset_batch_size,
