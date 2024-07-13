@@ -94,12 +94,14 @@ parser.add_argument(
     help="Learning rate scheduler type",
 )
 parser.add_argument("--lr_scheduler_args", nargs="+", action=KeyValueAction, help="Arguments for the learning rate scheduler")
-parser.add_argument(
-    "--num_train_epochs", type=int, default=5, help="Number of training epochs"
-)
+parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
+parser.add_argument("--num_train_steps", type=int, default=-1, help="Number of training steps. Supercedes num_train_epochs")
 parser.add_argument("--logging_steps", type=int, default=None, help="Number of steps between logging")
 parser.add_argument("--eval_steps", type=int, default=None, help="Number of steps between evaluations")
 parser.add_argument("--save_steps", type=int, default=None, help="Number of steps between saving the model")
+parser.add_argument("--save_total_limit", type=int, default=None, help="Number of checkpoints to keep")
+parser.add_argument("--load_best_model_at_end", action="store_true", help="Load the best model at the end of training")
+parser.add_argument("--metric_for_best_model", type=str, default=None, help="Metric to use for the best model")
 parser.add_argument("--evals_per_epoch", type=int, default=1, help="Number of evaluations per epoch")
 parser.add_argument("--auto_find_batch_size", action="store_true", help="Automatically find the batch size")
 parser.add_argument("--per_device_train_batch_size", type=int, default=4,
@@ -674,6 +676,7 @@ training_args = SFTConfig(
     logging_dir=f"{results_dir}/logs/",
     run_name=f"run-{timestamp}",
     num_train_epochs=args.num_train_epochs,
+    max_steps=args.num_train_steps,
     auto_find_batch_size=args.auto_find_batch_size,
     per_device_train_batch_size=args.per_device_train_batch_size,
     per_device_eval_batch_size=args.per_device_eval_batch_size,
@@ -682,12 +685,12 @@ training_args = SFTConfig(
     max_grad_norm=args.max_grad_norm,
     warmup_ratio=args.warmup_ratio,
     warmup_steps=args.warmup_steps,
+    save_total_limit=args.save_total_limit,
     learning_rate=args.learning_rate,
     lr_scheduler_type=args.lr_scheduler_type,
     lr_scheduler_kwargs=args.lr_scheduler_args,
     optim=args.optimizer,
     weight_decay=args.weight_decay,
-    load_best_model_at_end=False,
     seed=args.seed,
     data_seed=args.seed,
     bf16=(args.dtype == torch.bfloat16),
@@ -696,6 +699,8 @@ training_args = SFTConfig(
     fp16_full_eval=(args.dtype == torch.float16),
     report_to="wandb" if args.wandb else "none",
     remove_unused_columns=True,
+    load_best_model_at_end=args.load_best_model_at_end,
+    metric_for_best_model=args.metric_for_best_model,
     dataset_text_field="text",
     dataset_batch_size=args.dataset_batch_size,
     packing=args.dataset_packing,
@@ -705,6 +710,7 @@ training_args = SFTConfig(
     accelerator_config={"split_batches": True},
     ddp_find_unused_parameters=False,
     batch_eval_metrics=True,
+    # include_inputs_for_metrics=True,
     **training_kwargs
 )
 
