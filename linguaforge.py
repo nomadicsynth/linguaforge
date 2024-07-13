@@ -367,23 +367,37 @@ metric_accuracy = evaluate.load("accuracy")
 
 
 # Compute the evaluation metrics
-def compute_metrics(eval_pred, compute_result=False):
-    if compute_result:
-        return {
-            "accuracy": metric_accuracy.compute()["accuracy"],
-            # "perplexity": metric_perplexity.compute()["perplexity"],
-            # "f1": metric_f1.compute(average="micro")["f1"],
-        }
-    else:
-        # Unpack the predictions and labels from the eval_pred
-        logits, labels = eval_pred
-        predictions = torch.argmax(logits, dim=-1).flatten()
-        labels = labels.flatten()
+# def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
+#     # TODO: Figure out how to get the already computed accuracy score from the trainer
+#     if compute_result:
+#         return {
+#             "accuracy": metric_accuracy.compute()["accuracy"],
+#             # "perplexity": metric_perplexity.compute()["perplexity"],
+#             # "f1": metric_f1.compute(average="micro")["f1"],
+#         }
+#     else:
+#         # Get the logits, attention mask, and labels
+#         logits = eval_pred.predictions
+#         attention_mask = eval_pred.inputs["attention_mask"]
+#         metric_labels = eval_pred.label_ids
 
-        metric_accuracy.add_batch(predictions=predictions, references=labels)
-        # metric_perplexity.add_batch(predictions=predictions)
-        # metric_f1.add_batch(predictions=predictions, references=labels)
-        return {}
+#         # Shift the labels and attention mask to the left
+#         metric_labels = metric_labels[..., 1:].contiguous()
+#         attention_mask = attention_mask[..., 1:].contiguous()
+#         # Shift logits to have the same shape
+#         logits = logits[..., :-1, :].contiguous()
+
+#         predictions = torch.argmax(logits, dim=-1)
+
+#         # Flatten the input
+#         metric_labels = metric_labels.view(-1).cpu()
+#         predictions = predictions.view(-1).cpu()
+#         attention_mask = attention_mask.view(-1).cpu()
+
+#         metric_accuracy.add_batch(predictions=predictions, references=metric_labels, sample_weight=attention_mask)
+#         # metric_perplexity.add_batch(predictions=predictions)
+#         # metric_f1.add_batch(predictions=predictions, references=labels)
+#         return {}
 
 
 # Hyperparameter search objective function
@@ -739,7 +753,7 @@ trainer = SFTTrainer(
     eval_dataset=dataset["test"],
     tokenizer=tokenizer,
     model_init=model_init,
-    compute_metrics=compute_metrics,
+    # compute_metrics=compute_metrics,
 )
 
 # If early stopping is enabled, add the callback
