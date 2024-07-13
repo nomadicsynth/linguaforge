@@ -9,7 +9,7 @@ parser.add_argument("--stride", type=int, default=64, help="Stride for splitting
 parser.add_argument("--additional_special_tokens", type=str, nargs="+", default=[], help="Additional special tokens to add to the tokenizer.")
 parser.add_argument("--chat_template", type=str, default=None, help="Chat template.")
 parser.add_argument("--dataset_path", type=str, default="data", help="Path to the dataset.")
-parser.add_argument("--dataset_config", type=str, default="convai2", help="Dataset configuration.")
+parser.add_argument("--dataset_config", type=str, default="wikitext", help="Dataset configuration.")
 parser.add_argument("--dataset_size", type=int, default=0, help="Number of examples to select from the dataset.")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Training set size.")
 parser.add_argument("--seed", type=int, default=42, help="Random seed.")
