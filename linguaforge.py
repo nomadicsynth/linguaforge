@@ -461,7 +461,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
 
     # Add special tokens to the tokenizer
     additional_special_tokens = [
-        "<|im_start|>", "<|im_end|>",
+        # "<|im_start|>", "<|im_end|>",
         # "<|named_user|>",  # Named user. For future use. Example: "<|im_start|><|named_user|>Alice\n<Alice's message><|im_end|>"
         # "<|named_assistant|>",  # Named assistant. For future use. Example: "<|im_start|><|named_assistant|>Assistant George\n<Assistant George's message><|im_end|>"
         # "<|mem_start|>", "<|mem_end|>",  # Memory start and end tokens. For future use. Store hidden information in the context, e.g. "<|mem_start|>Alice's birthday is 12th May.<|mem_end|>"
@@ -473,20 +473,23 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
         additional_special_tokens += args.additional_special_tokens
 
     # Add <|spare_1|>, <|spare_2|>, etc. to the tokenizer to make the vocab size a multiple of 8
-    for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1):
-        additional_special_tokens.append(f"<|spare_{i}|>")
+    if len(additional_special_tokens) + len(tokenizer) % 8 != 0:
+        for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1):
+            additional_special_tokens.append(f"<|spare_{i}|>")
+            print_if_main_process(f"Added <|spare_{i}|> to the tokenizer.")
 
+    # Add the special tokens to the tokenizer
     tokenizer.add_special_tokens(
         {"additional_special_tokens": additional_special_tokens},
         replace_additional_special_tokens=False,
     )
 
-    if args.additional_special_tokens:
-        print_if_main_process(f"Additional special tokens added to the tokenizer.")
+    if len(additional_special_tokens) > 0 and is_main_process:
+        print(f"Additional special tokens added to the tokenizer.")
 
         # Print the token IDs of the special tokens
         for token in args.additional_special_tokens:
-            print_if_main_process(f"{token}: {tokenizer(token)}")
+            print(f"{token}: {tokenizer(token)}")
 
     # Assert that the vocab size is a multiple of 8
     assert (
