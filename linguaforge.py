@@ -490,7 +490,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
         print(f"Additional special tokens added to the tokenizer.")
 
         # Print the token IDs of the special tokens
-        for token in args.additional_special_tokens:
+        for token in additional_special_tokens:
             print(f"{token}: {tokenizer(token)}")
 
     # Assert that the vocab size is a multiple of 8
