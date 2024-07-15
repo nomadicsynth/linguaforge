@@ -97,9 +97,11 @@ parser.add_argument("--lr_scheduler_args", nargs="+", action=KeyValueAction, hel
 parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
 parser.add_argument("--num_train_steps", type=int, default=-1, help="Number of training steps. Supercedes num_train_epochs")
 parser.add_argument("--logging_steps", type=int, default=None, help="Number of steps between logging")
+parser.add_argument("--include_num_input_tokens_seen", action="store_true", help="Include the number of input tokens seen in the log output")
 parser.add_argument("--eval_steps", type=int, default=None, help="Number of steps between evaluations")
 parser.add_argument("--save_steps", type=int, default=None, help="Number of steps between saving the model")
 parser.add_argument("--save_total_limit", type=int, default=None, help="Number of checkpoints to keep")
+parser.add_argument("--eval_on_start", action="store_true", help="Evaluate the model at the start of training")
 parser.add_argument("--load_best_model_at_end", action="store_true", help="Load the best model at the end of training")
 parser.add_argument("--metric_for_best_model", type=str, default=None, help="Metric to use for the best model")
 parser.add_argument("--evals_per_epoch", type=int, default=1, help="Number of evaluations per epoch")
@@ -710,6 +712,8 @@ training_args = SFTConfig(
     accelerator_config={"split_batches": True},
     ddp_find_unused_parameters=False,
     batch_eval_metrics=True,
+    include_num_input_tokens_seen=args.include_num_input_tokens_seen,
+    eval_on_start=args.eval_on_start,
     # include_inputs_for_metrics=True,
     **training_kwargs
 )
