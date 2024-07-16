@@ -331,7 +331,7 @@ def prepare_dataset(
     batch_size: int = 1000,
 ) -> DatasetDict:
     print_if_main_process("Preparing the dataset...")
-    # If the dataset is already split into train and test and/or validate
+    # If the dataset is already split into train and test and/or validate, use it as is. Prefer "validation" split over "test" split.
     if "validation" in dataset:
         dataset["test"] = dataset["validation"]
         del dataset["validation"]
