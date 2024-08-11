@@ -15,6 +15,17 @@ print("Local rank:", os.environ.get("LOCAL_RANK", -1))
 import argparse
 
 
+def int_or_float(value):
+    try:
+        float_value = float(value)
+        if float_value.is_integer():
+            return int(float_value)
+        return float_value
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Invalid value: {value}")
+
+
+
 # Custom action to parse key-value pairs
 class KeyValueAction(argparse.Action):
     def __call__(self, parser, namespace, values, option_string=None):
@@ -96,10 +107,10 @@ parser.add_argument(
 parser.add_argument("--lr_scheduler_args", nargs="+", action=KeyValueAction, help="Arguments for the learning rate scheduler")
 parser.add_argument("--num_train_epochs", type=int, default=5, help="Number of training epochs")
 parser.add_argument("--num_train_steps", type=int, default=-1, help="Number of training steps. Supercedes num_train_epochs")
-parser.add_argument("--logging_steps", type=int, default=None, help="Number of steps between logging")
+parser.add_argument("--logging_steps", type=int_or_float, default=None, help="Number of steps between logging")
 parser.add_argument("--include_num_input_tokens_seen", action="store_true", help="Include the number of input tokens seen in the log output")
-parser.add_argument("--eval_steps", type=int, default=None, help="Number of steps between evaluations")
-parser.add_argument("--save_steps", type=int, default=None, help="Number of steps between saving the model")
+parser.add_argument("--eval_steps", type=int_or_float, default=None, help="Number of steps between evaluations")
+parser.add_argument("--save_steps", type=int_or_float, default=None, help="Number of steps between saving the model")
 parser.add_argument("--save_total_limit", type=int, default=None, help="Number of checkpoints to keep")
 parser.add_argument("--eval_on_start", action="store_true", help="Evaluate the model at the start of training")
 parser.add_argument("--load_best_model_at_end", action="store_true", help="Load the best model at the end of training")
