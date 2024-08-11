@@ -104,6 +104,7 @@ parser.add_argument("--save_total_limit", type=int, default=None, help="Number o
 parser.add_argument("--eval_on_start", action="store_true", help="Evaluate the model at the start of training")
 parser.add_argument("--load_best_model_at_end", action="store_true", help="Load the best model at the end of training")
 parser.add_argument("--metric_for_best_model", type=str, default=None, help="Metric to use for the best model")
+parser.add_argument("--greater_is_better", action="store_true", help="The metric for the best model is greater when true")
 parser.add_argument("--evals_per_epoch", type=int, default=1, help="Number of evaluations per epoch")
 parser.add_argument("--auto_find_batch_size", action="store_true", help="Automatically find the batch size")
 parser.add_argument("--per_device_train_batch_size", type=int, default=4,
@@ -405,8 +406,28 @@ metric_accuracy = evaluate.load("accuracy")
 
 
 # Hyperparameter search objective function
-def compute_objective(metrics: dict) -> float:
-    return metrics["eval_loss"]
+def compute_objective(metrics: Dict[str, float]) -> float:
+    """
+    The objective to maximize/minimize when doing an hyperparameter search. It is the evaluation loss if no
+    metric is provided in args.metric_for_best_model. Otherwise, it is the metric provided in args.metric_for_best_model.
+
+    Args:
+        metrics (`Dict[str, float]`): The metrics returned by the evaluate method.
+
+    Return:
+        `float`: The objective to minimize or maximize
+    """
+    if args.metric_for_best_model:
+        # Does it have "eval_" prefix?
+        if args.metric_for_best_model.startswith("eval_"):
+            metric = args.metric_for_best_model
+        elif "eval_" + args.metric_for_best_model in metrics:
+            metric = "eval_" + args.metric_for_best_model
+        else:
+            metric = args.metric_for_best_model
+        return metrics[metric]
+    else:
+        return metrics["eval_loss"]
 
 
 # Hyperparameter search space
@@ -896,7 +917,7 @@ def run_study():
         hp_space=hp_space,
         compute_objective=compute_objective,
         n_trials=n_trials,
-        direction="minimize",
+        direction="minimize" if not args.greater_is_better else "maximize",
         backend="optuna",
         **optuna_kwargs,
     )
