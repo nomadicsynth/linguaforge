@@ -937,43 +937,43 @@ def run_study():
         **optuna_kwargs,
     )
 
-    # Load the study from the database
-    study = optuna.load_study(study_name=study_name, storage=study_storage)
+    if is_main_process:
+        # Load the study from the database
+        study = optuna.load_study(study_name=study_name, storage=study_storage)
 
-    # Visualize the study, saving the plots to the study directory
-    vis_dir = f"{results_dir}/study-visualizations/"
-    os.makedirs(vis_dir, exist_ok=True)
-    optuna.visualization.plot_optimization_history(study).write_html(f"{vis_dir}/optimization_history.html")
-    if len(study.trials) > 1:
-        optuna.visualization.plot_parallel_coordinate(study).write_html(f"{vis_dir}/parallel_coordinate.html")
-    optuna.visualization.plot_slice(study).write_html(f"{vis_dir}/slice.html")
-    optuna.visualization.plot_contour(study).write_html(f"{vis_dir}/contour.html")
-    optuna.visualization.plot_parallel_coordinate(study).write_html(f"{vis_dir}/parallel_coordinate.html")
-    optuna.visualization.plot_edf(study).write_html(f"{vis_dir}/edf.html")
+        # Visualize the study, saving the plots to the study directory
+        vis_dir = f"{results_dir}/study-visualizations/"
+        os.makedirs(vis_dir, exist_ok=True)
+        optuna.visualization.plot_optimization_history(study).write_html(f"{vis_dir}/optimization_history.html")
+        if len(study.trials) > 1:
+            optuna.visualization.plot_parallel_coordinate(study).write_html(f"{vis_dir}/parallel_coordinate.html")
+        optuna.visualization.plot_slice(study).write_html(f"{vis_dir}/slice.html")
+        optuna.visualization.plot_contour(study).write_html(f"{vis_dir}/contour.html")
+        optuna.visualization.plot_edf(study).write_html(f"{vis_dir}/edf.html")
 
-    # Save the best run
-    best_run_path = f"{results_dir}/best_run.json"
-    with open(best_run_path, "w") as f:
-        json.dump(best_run, f, indent=4)
-    print_if_main_process(f"Best run saved to {best_run_path}")
+        # Save the best run
+        best_run_path = f"{results_dir}/best_run.json"
+        with open(best_run_path, "w") as f:
+            json.dump(best_run, f, indent=4)
+        print_if_main_process(f"Best run saved to {best_run_path}")
 
-    # Save the best model
-    best_model_path = save_model(results_dir)
+        # Save the best model
+        best_model_path = save_model(results_dir)
 
-    # Print the best run
-    print_if_main_process("Best run:")
-    print_if_main_process(json.dumps(best_run, indent=4))
+        # Print the best run
+        print_if_main_process("Best run:")
+        print_if_main_process(json.dumps(best_run, indent=4))
 
-    # Display the results
-    print_if_main_process("Results directory:", results_dir)
-    print_if_main_process("Best run saved to:", best_run_path)
-    print_if_main_process("Study saved to:", study_db_path)
-    print_if_main_process("Visualizations saved to:", vis_dir)
-    print_if_main_process("Best model saved to:", best_model_path)
-    print_if_main_process("Logs saved to:", f"{results_dir}/logs/")
-    print_if_main_process()
-    print_if_main_process("To view the training logs, run the following command:")
-    print_if_main_process(f"tensorboard --logdir {results_dir}/logs/")
+        # Display the results
+        print_if_main_process("Results directory:", results_dir)
+        print_if_main_process("Best run saved to:", best_run_path)
+        print_if_main_process("Study saved to:", study_db_path)
+        print_if_main_process("Visualizations saved to:", vis_dir)
+        print_if_main_process("Best model saved to:", best_model_path)
+        print_if_main_process("Logs saved to:", f"{results_dir}/logs/")
+        print_if_main_process()
+        print_if_main_process("To view the training logs, run the following command:")
+        print_if_main_process(f"tensorboard --logdir {results_dir}/logs/")
 
 
 # Run whatever is needed
