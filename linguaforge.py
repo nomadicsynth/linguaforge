@@ -923,6 +923,9 @@ def run_study():
         "storage": study_storage,
     }
 
+    # Set up the pruner
+    pruner = optuna.pruners.MedianPruner(n_warmup_steps=500)
+
     # Run the hyperparameter search
     best_run = trainer.hyperparameter_search(
         hp_space=hp_space,
@@ -930,6 +933,7 @@ def run_study():
         n_trials=n_trials,
         direction="minimize" if not args.greater_is_better else "maximize",
         backend="optuna",
+        pruner=pruner,
         **optuna_kwargs,
     )
 
