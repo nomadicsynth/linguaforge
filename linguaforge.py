@@ -1,4 +1,7 @@
+import math
 import os
+import sys
+from typing import Dict
 
 # Set environment variables for NCCL blocking wait and error handling
 os.environ['TORCH_NCCL_BLOCKING_WAIT'] = '1'
@@ -50,6 +53,7 @@ parser.add_argument("--project_name", type=str, required=True, help="Name of the
 parser.add_argument(
     "--output_dir", type=str, default=f"./results", help="Directory to save the results"
 )
+parser.add_argument("--run_name", type=str, default=None, help="Name of the run")
 
 # Add the arguments for the distributed training settings
 parser.add_argument("--num_cpus", type=int, default=None, help="Number of CPUs to use")
@@ -59,7 +63,8 @@ parser.add_argument("--gpu_devices", type=str, default="0", help="GPU devices to
 model_name_group = parser.add_mutually_exclusive_group(required=True)
 model_name_group.add_argument("--pretrained_model_name_or_path", type=str, help="Name or path of the pretrained model")
 model_name_group.add_argument("--template_model_name", type=str, help="Template model name")
-parser.add_argument("--resume_from_checkpoint", action="store_true", help="Resume training from the last checkpoint")
+model_name_group.add_argument("--resume_from_checkpoint", type=str, default=None, help="Path to the checkpoint to resume training from")
+
 parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
 parser.add_argument("--intermediate_size", type=int, default=4096,
@@ -72,10 +77,16 @@ parser.add_argument("--flash_attn", action="store_true", help="Use Flash Attenti
 # Add the arguments for the dataset settings
 parser.add_argument("--dataset_name_or_path", type=str, default=None, required=True, help="Name of the dataset to use")
 parser.add_argument("--dataset_config", type=str, default="default", help="Configuration of the dataset to use")
-parser.add_argument("--dataset_size", type=int, default=0, help="Number of examples to use from the dataset. Set to 0 to use the entire dataset")
+parser.add_argument("--dataset_train_split_name", type=str, default="train", help="Name of the training split")
+parser.add_argument("--dataset_test_split_name", type=str, default=None, help="Name of the test split")
+parser.add_argument("--reformat_dataset", type=str, default=None, help="Reformat the dataset using the specified script. The script must contain a 'format_example' function that takes a batch of examples and returns a batch of formatted examples. Example: ```\npython def format_example(batch):\n    if 'text' in batch:\n        batch['text'] = [text.lower() for text in batch['text']]\n    return batch\n```")
+parser.add_argument("--dataset_size_train", type=int, default=0, help="Number of examples to use from the training set. Set to 0 to use the entire training set")
+parser.add_argument("--dataset_size_test", type=int, default=0, help="Number of examples to use from the test set. Set to 0 to use the entire test set")
 parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training if < 1, or number of examples if >= 1")
 parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
 parser.add_argument("--shuffle", action="store_true", help="Shuffle the dataset")
+parser.add_argument("--keep_dataset_in_memory", action="store_true", help="Keep the dataset in memory")
+parser.add_argument("--dataset_streaming", action="store_true", help="Enable dataset streaming")
 parser.add_argument("--dataset_batch_size", type=int, default=1000, help="Batch size for processing the dataset")
 parser.add_argument("--dataset_packing", action="store_true", help="Enable dataset packing")
 parser.add_argument("--save_prepared_dataset", action="store_true", help="Save the prepared dataset")
@@ -126,7 +137,7 @@ parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                     help="Number of steps to accumulate gradients for")
 parser.add_argument("--eval_accumulation_steps", type=int, default=None,
                     help="Number of steps to accumulate evaluation results for before moving to CPU. Saves VRAM during eval.")
-parser.add_argument("--warmup_ratio", type=float, default=0.10,
+parser.add_argument("--warmup_ratio", type=float, default=0.0,
                     help="Ratio of the number of warmup steps to the total number of training steps")
 parser.add_argument("--warmup_steps", type=int, default=0, help="Number of warmup steps")
 parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay for the AdamW optimizer")
@@ -206,11 +217,12 @@ parser.add_argument("--warmup_steps_range", type=int, nargs=2,
 parser.add_argument("--opt_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
 parser.add_argument("--hidden_layers_range", type=int, nargs=2,
                     default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
-parser.add_argument("--opt_grokfast_ema", action="store_true", help="Optimize Grokfast EMA settings")
+parser.add_argument("--opt_grokfast_ema_alpha", action="store_true", help="Optimize Grokfast EMA alpha")
 parser.add_argument("--grokfast_ema_alpha_range", type=float, nargs=2,
-                    default=[0.8, 0.99], help="Range of alpha values to use for hyperparameter search")
+                    default=[0.8, 0.99], help="Range of Grokfast alpha values to use for hyperparameter search")
+parser.add_argument("--opt_grokfast_ema_lambda", action="store_true", help="Optimize Grokfast EMA lambda")
 parser.add_argument("--grokfast_ema_lambda_range", type=float, nargs=2,
-                    default=[1.0, 3.0], help="Range of lambda values to use for hyperparameter search")
+                    default=[0.5, 5], help="Range of Grokfast lambda values to use for hyperparameter search")
 
 args = parser.parse_args()
 
@@ -220,6 +232,7 @@ if args.num_cpus is None:
 
 # Set devices
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_devices
+
 import torch
 
 if torch.cuda.is_available():
@@ -234,7 +247,7 @@ import warnings
 
 import evaluate
 import optuna
-from datasets import DatasetDict, load_dataset
+from datasets import DatasetDict, load_dataset, load_from_disk
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -290,7 +303,10 @@ if args.resume_from_checkpoint:
     results_dir = args.output_dir  # Results path is passed on the command line when resuming from a checkpoint
 else:
     args.output_dir = args.output_dir + "/" + args.project_name
-    results_dir = f"{args.output_dir}/training-run-{timestamp}"
+    if args.run_name:
+        results_dir = f"{args.output_dir}/{args.run_name}-{timestamp}"
+    else:
+        results_dir = f"{args.output_dir}/run-{timestamp}"
 
 # Training settings
 # Set dtype to the appropriate torch dtype
@@ -334,86 +350,121 @@ if is_main_process and not os.path.exists(results_dir):
 print(f"Using device: {device}")
 
 
+def load_processing_script(script_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dataset_processing", script_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 # Prepare the dataset
 def prepare_dataset(
     dataset: DatasetDict,
     dataset_split: float,
-    dataset_size: int,
+    dataset_size_train: int,
+    dataset_size_test: int,
     shuffle: bool = False,
     batch_size: int = 1000,
 ) -> DatasetDict:
+    """
+    Prepare the dataset for training and evaluation by splitting it into training and evaluation sets, and selecting a subset of examples from the training and evaluation sets.
+    TODO: It would be better if dataset transforms were used to prepare the dataset. This would allow for more flexibility in the dataset preparation process. Refactor this function to use dataset transforms.
+    """
     print_if_main_process("Preparing the dataset...")
+    prepared_dataset = None
+
     # If the dataset is already split into train and test and/or validate, use it as is. Prefer "validation" split over "test" split.
     if "validation" in dataset:
         dataset["test"] = dataset["validation"]
         del dataset["validation"]
     if "test" in dataset:
-        if dataset_size > 0:
-            print_if_main_process("Selecting", dataset_size, "examples from the training set...")
-            dataset["train"] = dataset["train"].shuffle(args.seed).select(range(dataset_size), writer_batch_size=batch_size)
-        return dataset
+        if shuffle:
+            dataset["train"] = dataset["train"].shuffle(args.seed)
+            dataset["test"] = dataset["test"].shuffle(args.seed)
+        if dataset_size_train > 0:
+            print_if_main_process("Selecting", dataset_size_train, "examples from the training set...")
+            dataset["train"] = dataset["train"].select(range(dataset_size_train))
+        if dataset_size_test > 0:
+            print_if_main_process("Selecting", dataset_size_test, "examples from the test set...")
+            dataset["test"] = dataset["test"].select(range(dataset_size_test))
+        prepared_dataset = dataset
     else:
-        prepared_dataset = None
+        if shuffle:
+            dataset["train"] = dataset["train"].shuffle(args.seed)
 
         # Select the first dataset_size examples from the training set
-        if dataset_size > 0:
-            print_if_main_process("Selecting", dataset_size, "examples from the dataset...")
-            prepared_dataset = dataset["train"].select(range(dataset_size), writer_batch_size=batch_size)
+        if dataset_size_train > 0:
+            print_if_main_process("Selecting", dataset_size_train, "examples from the dataset...")
+            prepared_dataset = dataset["train"].select(range(dataset_size_train))
         else:
-            dataset_size = len(dataset["train"])
-            print_if_main_process("Using the entire dataset of size", dataset_size)
+            dataset_size_train = len(dataset["train"])
+            print_if_main_process("Using the entire dataset of size", dataset_size_train)
             prepared_dataset = dataset["train"]
 
         # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
         print_if_main_process("Splitting the dataset into training and evaluation sets...")
-        print_if_main_process("Training set size:", round(dataset_size * dataset_split))
-        print_if_main_process("Evaluation set size:", dataset_size - round(dataset_size * dataset_split))
-        prepared_dataset = prepared_dataset.train_test_split(test_size=1-dataset_split, seed=args.seed, shuffle=shuffle, writer_batch_size=batch_size)
+        print_if_main_process("Training set size:", round(len(prepared_dataset) * dataset_split))
+        print_if_main_process("Evaluation set size:", len(prepared_dataset) - round(len(prepared_dataset) * dataset_split))
+        prepared_dataset = prepared_dataset.train_test_split(train_size=dataset_split, seed=args.seed, shuffle=shuffle)
 
-        # Return the training and evaluation datasets
-        return prepared_dataset
+    if args.reformat_dataset:
+        processing_module = load_processing_script(args.reformat_dataset)
+        if hasattr(processing_module, 'format_example'):
+            prepared_dataset.set_transform(processing_module.format_example)
+        else:
+            raise AttributeError("The processing script must contain a 'format_example' function")
+
+    # Return the training and evaluation datasets
+    return prepared_dataset
 
 
 # Load the evaluation metrics
+import evaluate
 metric_accuracy = evaluate.load("accuracy")
-# metric_perplexity = evaluate.load("perplexity")
-# metric_f1 = evaluate.load("f1")
+metric_f1 = evaluate.load("f1")
 # metric_rouge = evaluate.load("rouge")
 # metric_bleu = evaluate.load("bleu")
 
 
 # Compute the evaluation metrics
-# def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
-#     # TODO: Figure out how to get the already computed accuracy score from the trainer
-#     if compute_result:
-#         return {
-#             "accuracy": metric_accuracy.compute()["accuracy"],
-#             # "perplexity": metric_perplexity.compute()["perplexity"],
-#             # "f1": metric_f1.compute(average="micro")["f1"],
-#         }
-#     else:
-#         # Get the logits, attention mask, and labels
-#         logits = eval_pred.predictions
-#         attention_mask = eval_pred.inputs["attention_mask"]
-#         metric_labels = eval_pred.label_ids
+def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
+    with torch.no_grad():
+        # Get the logits, attention mask, and labels
+        logits = eval_pred.predictions.detach()
+        metric_labels = eval_pred.label_ids.detach()
+        attention_mask = eval_pred.inputs["attention_mask"].detach()
 
-#         # Shift the labels and attention mask to the left
-#         metric_labels = metric_labels[..., 1:].contiguous()
-#         attention_mask = attention_mask[..., 1:].contiguous()
-#         # Shift logits to have the same shape
-#         logits = logits[..., :-1, :].contiguous()
+        # Shift the labels and attention mask to the left
+        metric_labels = metric_labels[..., 1:]
+        attention_mask = attention_mask[..., 1:]
+        logits = logits[..., :-1, :]
 
-#         predictions = torch.argmax(logits, dim=-1)
+        predictions = torch.argmax(logits, dim=-1)
 
-#         # Flatten the input
-#         metric_labels = metric_labels.view(-1).cpu()
-#         predictions = predictions.view(-1).cpu()
-#         attention_mask = attention_mask.view(-1).cpu()
+        # Mask out the padding tokens
+        if attention_mask is None:
+            predictions = predictions * attention_mask
+            metric_labels = metric_labels * attention_mask
 
-#         metric_accuracy.add_batch(predictions=predictions, references=metric_labels, sample_weight=attention_mask)
-#         # metric_perplexity.add_batch(predictions=predictions)
-#         # metric_f1.add_batch(predictions=predictions, references=labels)
-#         return {}
+        # Flatten the input and move to CPU
+        metric_labels = metric_labels.flatten().cpu()
+        predictions = predictions.flatten().cpu()
+        attention_mask = attention_mask.flatten().cpu()
+
+        metric_accuracy.add_batch(predictions=predictions, references=metric_labels)
+        metric_f1.add_batch(predictions=predictions, references=metric_labels)
+
+        del logits, metric_labels, predictions, attention_mask
+        torch.cuda.empty_cache()
+
+    if compute_result:
+        return {
+            "accuracy": metric_accuracy.compute()["accuracy"],
+            "f1": metric_f1.compute(average="micro")["f1"],
+        }
+    else:
+        return {}
 
 
 # Hyperparameter search objective function
@@ -472,6 +523,10 @@ def hp_space(trial: optuna.Trial) -> dict:
         space["warmup_steps"] = trial.suggest_int("warmup_steps", warmup_steps_range[0], warmup_steps_range[1])
     if args.opt_hidden_layers:
         space["hidden_layers"] = trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1])
+    if args.opt_grokfast_ema_alpha:
+        space["grokfast_ema_alpha"] = trial.suggest_float("grokfast_ema_alpha", args.grokfast_ema_alpha_range[0], args.grokfast_ema_alpha_range[1])
+    if args.opt_grokfast_ema_lambda:
+        space["grokfast_ema_lambda"] = trial.suggest_float("grokfast_ema_lambda", args.grokfast_ema_lambda_range[0], args.grokfast_ema_lambda_range[1])
 
     return space
 
@@ -493,6 +548,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
         max_length=args.context_length,
         stride=args.stride,
         pad_to_multiple_of=8,
+        padding_side="right"
     )
 
     # Add special tokens to the tokenizer
@@ -509,7 +565,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
         additional_special_tokens += args.additional_special_tokens
 
     # Add <|spare_1|>, <|spare_2|>, etc. to the tokenizer to make the vocab size a multiple of 8
-    if len(additional_special_tokens) + len(tokenizer) % 8 != 0:
+    if (len(additional_special_tokens) + len(tokenizer)) % 8 != 0:
         for i in range(1, 8 - (len(tokenizer) + len(additional_special_tokens)) % 8 + 1):
             additional_special_tokens.append(f"<|spare_{i}|>")
             print_if_main_process(f"Added <|spare_{i}|> to the tokenizer.")
@@ -530,7 +586,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
     # Assert that the vocab size is a multiple of 8
     assert (
         len(tokenizer)
-    ) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code, dumbass!"
+    ) % 8 == 0, "The vocabulary size is not a multiple of 8. Fix the padding code!"
 
     # Set up the chat template
     if args.chat_template:
@@ -541,6 +597,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
 
 # Initialize the model
 def model_init(trial: optuna.Trial) -> PreTrainedModel:
+    global tokenizer
     if trial is not None:
         print_if_main_process("\033[93m" + f"Trial {trial.number}" + "\033[0m")
         # Print the hyperparameters as a single-line JSON string
@@ -572,11 +629,13 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
             num_key_value_heads=args.num_key_value_heads,
             max_position_embeddings=args.context_length,
             use_cache=False if args.gradient_checkpointing else True,
-            pad_token_id=tokenizer.pad_token_id,
+            pad_token_id=tokenizer.pad_token_id if tokenizer is not None else None,
             sliding_window=None,
             torch_dtype=args.dtype,
-            attn_implementation="flash_attention_2",
         )
+
+        if args.flash_attn:
+            model_config.update({"attn_implementation":"flash_attention_2"})
 
         # If this is a trial, set the hyperparameters from the trial
         if trial is not None:
@@ -596,25 +655,18 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
         model_config = AutoConfig.from_pretrained(args.template_model_name, **model_config)
         model = AutoModelForCausalLM.from_config(model_config)
 
-        # If the dtype is float16 or bfloat16, convert the model to that dtype
-        if model_config.torch_dtype == torch.float16:
-            model = model.half()
-        elif model_config.torch_dtype == torch.bfloat16:
-            model = model.to(torch.bfloat16)
-
         # Move the model to the device
         model = model.to(device)
 
     # Resize the token embeddings to match the tokenizer
     model.resize_token_embeddings(len(tokenizer))
 
-    # Print the model size with suffix 'G' or 'M'
+    # Print the number of model parameter with suffix 'B' for billion or 'M' for million
     model_size = sum(p.numel() for p in model.parameters())
+    model_size_suffix = "B" if model_size > 1e9 else "M"
     model_size = model_size / 1e9 if model_size > 1e9 else model_size / 1e6
-    model_size = round(model_size)
-    model_size_suffix = "G" if model_size > 1e3 else "M"
 
-    print_if_main_process(f"Model size: {model_size}{model_size_suffix} parameters")
+    print_if_main_process(f"Model size: {model_size:.2f}{model_size_suffix}")
 
     return model
 
@@ -627,17 +679,63 @@ def save_model(path: str) -> str:
     return model_path
 
 
-# Tokenizer setup
-tokenizer = None
-if args.resume_from_checkpoint:
-    # Load the tokenizer from the checkpoint
-    tokenizer = tokenizer_init(f"{results_dir}/model")
-elif args.pretrained_model_name_or_path:
-    # Load the tokenizer from the pretrained model
-    tokenizer = tokenizer_init(args.pretrained_model_name_or_path)
-elif args.template_model_name:
-    # Load the tokenizer from the template model
-    tokenizer = tokenizer_init(args.template_model_name)
+# Load the dataset
+print_if_main_process(
+    f"Loading the dataset from {args.dataset_name_or_path} ({args.dataset_config})..."
+)
+dataset = None
+try:
+    dataset = load_dataset(args.dataset_name_or_path, args.dataset_config, keep_in_memory=args.keep_dataset_in_memory, streaming=args.dataset_streaming)
+except ValueError as ve:
+    if "Please use `load_from_disk` instead." in str(ve):
+        dataset = load_from_disk(args.dataset_name_or_path, keep_in_memory=args.keep_dataset_in_memory)
+
+if dataset is None:
+    raise ValueError(
+        f"Could not load dataset from {args.dataset_name_or_path} ({args.dataset_config})."
+    )
+elif "train" not in dataset:
+    new_dataset = DatasetDict()
+    new_dataset["train"] = dataset
+    dataset = new_dataset
+    del new_dataset
+
+# Prepare the dataset
+dataset = prepare_dataset(
+    dataset=dataset,
+    dataset_split=args.dataset_split,
+    dataset_size_train=args.dataset_size_train,
+    dataset_size_test=args.dataset_size_test,
+    shuffle=args.shuffle,
+    batch_size=args.dataset_batch_size,
+)
+
+# Save the prepared dataset
+if args.save_prepared_dataset:
+    # Only save if main process
+    if is_main_process:
+        dataset.save_to_disk(args.dataset_save_path)
+    print_if_main_process(f"Prepared dataset saved to {args.dataset_save_path}")
+    if args.save_prepared_dataset_only:
+        print_if_main_process("Exiting...")
+        exit()
+
+# Save the dataset configuration
+if is_main_process:
+    with open(f"{results_dir}/dataset_config.json", "w") as f:
+        json.dump(
+            {
+                "dataset_name_or_path": args.dataset_name_or_path,
+                "dataset_config": args.dataset_config,
+                "dataset_split": args.dataset_split,
+                "dataset_size": len(dataset),
+                "shuffle": args.shuffle,
+                "batch_size": args.dataset_batch_size,
+                "stride": args.stride,
+            },
+            f,
+            indent=2,
+        )
 
 if args.wandb:
     # set the wandb project where this run will be logged
@@ -651,6 +749,9 @@ if args.wandb:
 
 # TrainingArguments setup
 training_kwargs = {}
+
+# Set the output directory
+training_kwargs.update({"output_dir": results_dir})
 
 if args.eval_steps:
     training_kwargs.update({
@@ -697,6 +798,15 @@ print_if_main_process(f"logging_strategy = {training_kwargs["logging_strategy"]}
 if training_kwargs["logging_strategy"] == "steps":
     print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
 
+# Set the run name
+if args.run_name:
+    training_kwargs.update({"run_name": f"{args.run_name}-{timestamp}"})
+elif args.resume_from_checkpoint and args.wandb:
+    print_if_main_process("When resuming from a checkpoint and logging to Weights & Biases, a run name must be provided with the --run_name argument.")
+    exit()
+else:
+    training_kwargs.update({"run_name": f"run-{timestamp}"})
+
 # Add the GrokFast options if they're passed
 if args.grokfast_ema:
     training_kwargs.update({
@@ -705,10 +815,25 @@ if args.grokfast_ema:
         "grokfast_ema_lambda": args.grokfast_ema_lambda
     })
 
+sfttrainer_args = {}
+tokenizer = None
+
+if args.resume_from_checkpoint:
+    sfttrainer_args["model"] = f"{results_dir}/{args.resume_from_checkpoint}"
+else:
+    sfttrainer_args["model_init"] = model_init
+    # Tokenizer setup
+    if args.pretrained_model_name_or_path:
+        # Load the tokenizer from the pretrained model
+        tokenizer = tokenizer_init(args.pretrained_model_name_or_path)
+        sfttrainer_args.update({"tokenizer": tokenizer})
+    elif args.template_model_name:
+        # Load the tokenizer from the template model
+        tokenizer = tokenizer_init(args.template_model_name)
+        sfttrainer_args.update({"tokenizer": tokenizer})
+
 training_args = SFTConfig(
-    output_dir=results_dir,
     logging_dir=f"{results_dir}/logs/",
-    run_name=f"run-{timestamp}",
     num_train_epochs=args.num_train_epochs,
     max_steps=args.num_train_steps,
     auto_find_batch_size=args.auto_find_batch_size,
@@ -739,66 +864,24 @@ training_args = SFTConfig(
     dataset_batch_size=args.dataset_batch_size,
     packing=args.dataset_packing,
     max_seq_length=args.context_length,
-    dataset_num_proc=args.num_cpus // 2,
-    dataloader_num_workers=args.num_cpus // 2,
+    dataset_num_proc=args.num_cpus,
+    dataloader_num_workers=args.num_cpus,
     accelerator_config={"split_batches": True},
     ddp_find_unused_parameters=False,
     batch_eval_metrics=True,
-    include_num_input_tokens_seen=args.include_num_input_tokens_seen,
+    include_num_input_tokens_seen=True,
     eval_on_start=args.eval_on_start,
-    # include_inputs_for_metrics=True,
+    include_inputs_for_metrics=True,
     **training_kwargs
 )
-
-# Load the dataset
-print_if_main_process(
-    f"Loading the dataset from {args.dataset_name_or_path} ({args.dataset_config})..."
-)
-dataset = load_dataset(args.dataset_name_or_path, args.dataset_config)
-
-# Prepare the dataset
-dataset = prepare_dataset(
-    dataset=dataset,
-    dataset_split=args.dataset_split,
-    dataset_size=args.dataset_size,
-    shuffle=args.shuffle,
-    batch_size=args.dataset_batch_size,
-)
-
-# Save the prepared dataset
-if args.save_prepared_dataset:
-    # Only save if main process
-    if is_main_process:
-        dataset.save_to_disk(args.dataset_save_path)
-    print_if_main_process(f"Prepared dataset saved to {args.dataset_save_path}")
-    if args.save_prepared_dataset_only:
-        print_if_main_process("Exiting...")
-        exit()
-
-# Save the dataset configuration
-with open(f"{results_dir}/dataset_config.json", "w") as f:
-    json.dump(
-        {
-            "dataset_name_or_path": args.dataset_name_or_path,
-            "dataset_config": args.dataset_config,
-            "dataset_split": args.dataset_split,
-            "dataset_size": len(dataset),
-            "shuffle": args.shuffle,
-            "batch_size": args.dataset_batch_size,
-            "stride": args.stride,
-        },
-        f,
-        indent=2,
-    )
 
 # Initialize the trainer
 trainer = SFTTrainer(
     args=training_args,
     train_dataset=dataset["train"],
     eval_dataset=dataset["test"],
-    tokenizer=tokenizer,
-    model_init=model_init,
-    # compute_metrics=compute_metrics,
+    compute_metrics=compute_metrics,
+    **sfttrainer_args
 )
 
 # If early stopping is enabled, add the callback
@@ -850,7 +933,7 @@ def run_training():
 
     # Train the model
     try:
-        trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
+        trainer.train(resume_from_checkpoint=bool(args.resume_from_checkpoint))
     except KeyboardInterrupt:
         # Save the training progress if main process
         if is_main_process:
@@ -858,7 +941,9 @@ def run_training():
             save_model(results_dir)
             print("Training progress saved.")
             print("Training interrupted by user.")
-            print(f"Resume training by running the following command:\npython sfttrainer.py --output_dir {results_dir} --resume_from_checkpoint")
+            print(f"Resume training by running the following command:\npython {" ".join(sys.argv[1:])} --output_dir {results_dir} --resume_from_checkpoint")
+        else:
+            time.sleep(5)
         exit()
 
     print_if_main_process("Training complete!")
@@ -873,39 +958,7 @@ def run_training():
     print_if_main_process("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
     print_if_main_process("Logs saved to:", f"{results_dir}/logs/")
     print_if_main_process()
-    print_if_main_process("To view the training logs, run the following command:")
-    print_if_main_process(f"tensorboard --logdir {results_dir}/logs/")
-    print_if_main_process()
     print_if_main_process("You can now fine-tune the model further or use it for generating text.")
-
-    # Congratulations! Your model has been trained successfully.
-
-    # To fine-tune the model further, you can load the model using the following code:
-    # model = MistralForCausalLM.from_pretrained(model_path)
-
-    # To generate text using the model, you can use the following code:
-    # from transformers import pipeline
-    # generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
-    # text = generator("Hello, world!", max_length=100)[0]["generated_text"]
-    # print(text)
-
-    # To use the model for downstream tasks, you can use the following code:
-    # from transformers import Trainer, TrainingArguments
-    # training_args = TrainingArguments(output_dir="./results")
-    # trainer = Trainer(model=model, args=training_args)
-    # trainer.train()
-
-    # To evaluate the model on a dataset, you can use the following code:
-    # from datasets import load_metric
-    # metric = load_metric("accuracy")
-    # predictions = model.predict(test_dataset)
-    # metric.compute(predictions=predictions, references=test_dataset["label"])
-
-    # To evaluate the model on BLEU score, you can use the following code:
-    # from datasets import load_metric
-    # metric = load_metric("bleu")
-    # predictions = model.predict(test_dataset)
-    # metric.compute(predictions=predictions, references=test_dataset["translation"])
 
 
 def run_study():
@@ -921,10 +974,32 @@ def run_study():
     optuna_kwargs = {
         "study_name": study_name,
         "storage": study_storage,
+        "gc_after_trial": True,
     }
 
     # Set up the pruner
-    pruner = optuna.pruners.MedianPruner(n_warmup_steps=500)
+    class CustomPruner(optuna.pruners.BasePruner):
+        def __init__(self, n_warmup_steps=500):
+            self.n_warmup_steps = n_warmup_steps
+            self.median_pruner = optuna.pruners.MedianPruner(n_warmup_steps=n_warmup_steps)
+
+        def prune(self, study, trial):
+            step = trial.last_step
+
+            if step < self.n_warmup_steps:
+                return False
+
+            value = trial.intermediate_values[step]
+            if value is None:
+                return False
+            # Check for NaN or zero
+            if math.isnan(value) or value == 0.0:
+                return True
+
+            return self.median_pruner.prune(study, trial)
+
+    # Create an instance of the custom pruner
+    pruner = CustomPruner(n_warmup_steps=args.warmup_steps)
 
     # Run the hyperparameter search
     best_run = trainer.hyperparameter_search(
