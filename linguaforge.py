@@ -161,6 +161,7 @@ parser.add_argument(
     help="Optimizer to use"
 )
 parser.add_argument("--optimizer_args", nargs="+", action=KeyValueAction, help="Arguments for the optimizer")
+parser.add_argument("--torch_compile", action="store_true", help="Enable torch.compile")
 
 # Logging settings
 parser.add_argument("--wandb", action="store_true", help="Enable logging to Weights & Biases")
@@ -828,6 +829,11 @@ if args.grokfast_ema:
 # Enable liger kernels
 if args.liger_kernels:
     training_kwargs.update({"use_liger": True})
+
+# Enable `torch.compile()` once support is better
+if args.torch_compile:
+    print("torch.compile() is not yet supported. Skipping.")
+    # training_kwargs.update({"torch_compile": True})
 
 sfttrainer_args = {}
 tokenizer = None
