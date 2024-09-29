@@ -12,11 +12,11 @@ class OptunaPruningCallback(TrainerCallback):
         # Retrieve the metric to monitor
         eval_loss = metrics.get('eval_loss')
 
-        # Check if eval_loss is NAN or INF
+        # Check if eval_loss is NaN or INF
         if eval_loss is None:
             raise ValueError("The monitored metric 'eval_loss' was not found.")
         if math.isnan(eval_loss) or math.isinf(eval_loss):
-            message = f"Trial was pruned at epoch {state.epoch} due to NAN or INF in eval_loss."
+            message = f"Trial was pruned at epoch {state.epoch} due to NaN or INF in eval_loss."
             raise optuna.exceptions.TrialPruned(message)
 
         # Report the current metric value to Optuna and check for pruning
@@ -34,9 +34,9 @@ class OptunaPruningCallback(TrainerCallback):
         if grad_norm is None or loss is None:
             return
 
-        # Check if grad_norm or loss is NAN or INF
+        # Check if grad_norm or loss is NaN or INF
         if math.isnan(grad_norm) or math.isinf(grad_norm) or math.isnan(loss) or math.isinf(loss):
-            message = f"Trial was pruned at step {state.global_step} due to NAN or INF in grad_norm or loss."
+            message = f"Trial was pruned at step {state.global_step} due to NaN or INF in grad_norm or loss."
             raise optuna.exceptions.TrialPruned(message)
 
         # Report the current metric value to Optuna and check for pruning
