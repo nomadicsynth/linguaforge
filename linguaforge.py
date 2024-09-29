@@ -73,6 +73,7 @@ parser.add_argument("--attention_heads", type=int, default=32, help="Number of a
 parser.add_argument("--num_key_value_heads", type=int, default=8, help="Number of key-value heads")
 parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
 parser.add_argument("--flash_attn", action="store_true", help="Use Flash Attention")
+parser.add_argument("--liger_kernels", action="store_true", help="Use LIGER kernels to increase throughput and reduce memory usage")
 
 # Add the arguments for the dataset settings
 parser.add_argument("--dataset_name_or_path", type=str, default=None, required=True, help="Name of the dataset to use")
@@ -814,6 +815,10 @@ if args.grokfast_ema:
         "grokfast_ema_alpha": args.grokfast_ema_alpha,
         "grokfast_ema_lambda": args.grokfast_ema_lambda
     })
+
+# Enable liger kernels
+if args.liger_kernels:
+    training_kwargs.update({"use_liger": True})
 
 sfttrainer_args = {}
 tokenizer = None
