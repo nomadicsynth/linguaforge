@@ -101,6 +101,7 @@ parser.add_argument("--chat_template", type=str, default=None, help="Chat templa
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+parser.add_argument("--dataset_shuffle_seed", type=int, default=42, help="Random seed for dataset shuffling only")
 parser.add_argument("--dtype", type=str, default="bfloat16",
                     help="Data type to use for the model",
                     choices=["float16", "bfloat16", "float32"])
@@ -372,6 +373,10 @@ def prepare_dataset(
     Prepare the dataset for training and evaluation by splitting it into training and evaluation sets, and selecting a subset of examples from the training and evaluation sets.
     TODO: It would be better if dataset transforms were used to prepare the dataset. This would allow for more flexibility in the dataset preparation process. Refactor this function to use dataset transforms.
     """
+    global args
+
+    seed = args.dataset_shuffle_seed if args.dataset_shuffle_seed is not None else args.seed
+
     print_if_main_process("Preparing the dataset...")
     prepared_dataset = None
 
@@ -381,8 +386,8 @@ def prepare_dataset(
         del dataset["validation"]
     if "test" in dataset:
         if shuffle:
-            dataset["train"] = dataset["train"].shuffle(args.seed)
-            dataset["test"] = dataset["test"].shuffle(args.seed)
+            dataset["train"] = dataset["train"].shuffle(seed)
+            dataset["test"] = dataset["test"].shuffle(seed)
         if dataset_size_train > 0:
             print_if_main_process("Selecting", dataset_size_train, "examples from the training set...")
             dataset["train"] = dataset["train"].select(range(dataset_size_train))
@@ -392,7 +397,7 @@ def prepare_dataset(
         prepared_dataset = dataset
     else:
         if shuffle:
-            dataset["train"] = dataset["train"].shuffle(args.seed)
+            dataset["train"] = dataset["train"].shuffle(seed)
 
         # Select the first dataset_size examples from the training set
         if dataset_size_train > 0:
@@ -407,7 +412,7 @@ def prepare_dataset(
         print_if_main_process("Splitting the dataset into training and evaluation sets...")
         print_if_main_process("Training set size:", round(len(prepared_dataset) * dataset_split))
         print_if_main_process("Evaluation set size:", len(prepared_dataset) - round(len(prepared_dataset) * dataset_split))
-        prepared_dataset = prepared_dataset.train_test_split(train_size=dataset_split, seed=args.seed, shuffle=shuffle)
+        prepared_dataset = prepared_dataset.train_test_split(train_size=dataset_split, seed=seed, shuffle=shuffle)
 
     if args.reformat_dataset:
         processing_module = load_processing_script(args.reformat_dataset)
@@ -855,7 +860,7 @@ training_args = SFTConfig(
     optim=args.optimizer,
     weight_decay=args.weight_decay,
     seed=args.seed,
-    data_seed=args.seed,
+    data_seed=args.dataset_shuffle_seed if args.dataset_shuffle_seed else args.seed
     bf16=(args.dtype == torch.bfloat16),
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
