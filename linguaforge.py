@@ -539,6 +539,8 @@ def hp_space(trial: optuna.Trial) -> dict:
 
 # Set up the tokenizer
 def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
+    global args
+
     # Load tokenizer
     print_if_main_process(f"Loading the tokenizer from {model_name_or_path}...")
 
