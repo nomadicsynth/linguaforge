@@ -122,9 +122,9 @@ parser.add_argument("--num_train_steps", type=int, default=-1, help="Number of t
 parser.add_argument("--logging_steps", type=int_or_float, default=None, help="Number of steps between logging")
 parser.add_argument("--include_num_input_tokens_seen", action="store_true", help="Include the number of input tokens seen in the log output")
 parser.add_argument("--eval_steps", type=int_or_float, default=None, help="Number of steps between evaluations")
+parser.add_argument("--eval_on_start", action="store_true", help="Evaluate the model at the start of training")
 parser.add_argument("--save_steps", type=int_or_float, default=None, help="Number of steps between saving the model")
 parser.add_argument("--save_total_limit", type=int, default=None, help="Number of checkpoints to keep")
-parser.add_argument("--eval_on_start", action="store_true", help="Evaluate the model at the start of training")
 parser.add_argument("--load_best_model_at_end", action="store_true", help="Load the best model at the end of training")
 parser.add_argument("--metric_for_best_model", type=str, default=None, help="Metric to use for the best model")
 parser.add_argument("--greater_is_better", action="store_true", help="The metric for the best model is greater when true")
@@ -421,7 +421,6 @@ def prepare_dataset(
 
 
 # Load the evaluation metrics
-import evaluate
 metric_accuracy = evaluate.load("accuracy")
 metric_f1 = evaluate.load("f1")
 # metric_rouge = evaluate.load("rouge")
