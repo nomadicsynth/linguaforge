@@ -230,7 +230,7 @@ args = parser.parse_args()
 
 # Set the number of CPUs
 if args.num_cpus is None:
-    args.num_cpus = os.cpu_count()
+    args.num_cpus = 1
 
 # Set devices
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_devices
