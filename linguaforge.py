@@ -860,7 +860,7 @@ training_args = SFTConfig(
     optim=args.optimizer,
     weight_decay=args.weight_decay,
     seed=args.seed,
-    data_seed=args.dataset_shuffle_seed if args.dataset_shuffle_seed else args.seed
+    data_seed=args.dataset_shuffle_seed if args.dataset_shuffle_seed else args.seed,
     bf16=(args.dtype == torch.bfloat16),
     bf16_full_eval=(args.dtype == torch.bfloat16),
     fp16=(args.dtype == torch.float16),
