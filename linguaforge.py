@@ -684,6 +684,11 @@ def save_model(path: str) -> str:
     return model_path
 
 
+# Save the command-line arguments to a file
+if is_main_process:
+    with open(f"{results_dir}/command_line_args.txt", "w") as f:
+        f.write(" ".join(sys.argv[1:]))
+
 # Load the dataset
 print_if_main_process(
     f"Loading the dataset from {args.dataset_name_or_path} ({args.dataset_config})..."
