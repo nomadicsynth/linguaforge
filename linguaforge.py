@@ -95,6 +95,7 @@ parser.add_argument("--save_prepared_dataset_only", action="store_true", help="S
 parser.add_argument("--dataset_save_path", type=str, default="dataset", help="Path to save the prepared dataset")
 
 # Add the arguments for the tokenization settings
+parser.add_argument("--tokenizer_name_or_path", type=str, default=None, help="Name or path of the tokeniser")
 parser.add_argument("--additional_special_tokens", type=str, nargs="+",
                     default=None, help="Additional special tokens to add to the tokenizer")
 parser.add_argument("--chat_template", type=str, default=None, help="Chat template for chatbot training")
@@ -853,6 +854,9 @@ else:
         # Load the tokenizer from the template model
         tokenizer = tokenizer_init(args.template_model_name)
         sfttrainer_args.update({"tokenizer": tokenizer})
+
+if args.tokenizer_name_or_path:
+    sfttrainer_args["tokenizer"] = tokenizer_init(args.tokenizer_name_or_path)
 
 training_args = SFTConfig(
     logging_dir=f"{results_dir}/logs/",
