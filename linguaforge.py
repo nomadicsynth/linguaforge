@@ -65,12 +65,12 @@ model_name_group.add_argument("--pretrained_model_name_or_path", type=str, help=
 model_name_group.add_argument("--template_model_name", type=str, help="Template model name")
 model_name_group.add_argument("--resume_from_checkpoint", type=str, default=None, help="Path to the checkpoint to resume training from")
 
-parser.add_argument("--hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
 parser.add_argument("--intermediate_size", type=int, default=4096,
                     help="Size of the feed-forward network in the transformer layers")
-parser.add_argument("--attention_heads", type=int, default=32, help="Number of attention heads")
+parser.add_argument("--num_attention_heads", type=int, default=32, help="Number of attention heads")
 parser.add_argument("--num_key_value_heads", type=int, default=8, help="Number of key-value heads")
+parser.add_argument("--num_hidden_layers", type=int, default=1, help="Number of transformer layers")
 parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
 parser.add_argument("--flash_attn", action="store_true", help="Use Flash Attention")
 parser.add_argument("--liger_kernels", action="store_true", help="Use LIGER kernels to increase throughput and reduce memory usage")
@@ -190,12 +190,21 @@ parser.add_argument("--dtype_categorical", type=str, nargs="+",
 parser.add_argument("--opt_lr_scheduler_type", action="store_true", help="Optimize the learning rate scheduler type")
 parser.add_argument("--lr_scheduler_types", type=str, nargs="+", default=[
                     "linear", "cosine", "cosine_with_restarts", "polynomial"], help="Categorical values for the learning rate scheduler type")
-parser.add_argument("--opt_attention_heads", action="store_true", help="Optimize the number of attention heads")
-parser.add_argument("--attention_heads_categorical", type=int, nargs="+",
+parser.add_argument("--opt_hidden_size", action="store_true", help="Optimize the hidden size")
+parser.add_argument("--hidden_size_categorical", type=int, nargs="+",
+                    default=[128, 256, 512, 1024], help="Categorical values for the hidden size")
+parser.add_argument("--opt_intermediate_size", action="store_true", help="Optimize the intermediate size")
+parser.add_argument("--intermediate_size_categorical", type=int, nargs="+",
+                    default=[128, 256, 512, 1024], help="Categorical values for the intermediate size")
+parser.add_argument("--opt_num_attention_heads", action="store_true", help="Optimize the number of attention heads")
+parser.add_argument("--num_attention_heads_categorical", type=int, nargs="+",
                     default=[8, 16, 32], help="Categorical values for the number of attention heads")
 parser.add_argument("--opt_num_key_value_heads", action="store_true", help="Optimize the number of key-value heads")
 parser.add_argument("--num_key_value_heads_categorical", type=int, nargs="+",
                     default=[1, 4, 8, 16, 32], help="Categorical values for the number of key-value heads")
+parser.add_argument("--opt_num_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
+parser.add_argument("--num_hidden_layers_range", type=int, nargs=2,
+                    default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
 parser.add_argument("--opt_train_epochs", action="store_true", help="Optimize the number of training epochs")
 parser.add_argument("--train_epochs_range", type=int, nargs=2,
                     default=[1, 7], help="Range of training epochs to use for hyperparameter search")
@@ -218,9 +227,6 @@ parser.add_argument("--warmup_ratio_range", type=float, nargs=2,
 parser.add_argument("--opt_warmup_steps", action="store_true", help="Optimize the warmup steps")
 parser.add_argument("--warmup_steps_range", type=int, nargs=2,
                     default=[0, 1000], help="Range of warmup steps to use for hyperparameter search")
-parser.add_argument("--opt_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
-parser.add_argument("--hidden_layers_range", type=int, nargs=2,
-                    default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
 parser.add_argument("--opt_grokfast_ema_alpha", action="store_true", help="Optimize Grokfast EMA alpha")
 parser.add_argument("--grokfast_ema_alpha_range", type=float, nargs=2,
                     default=[0.8, 0.99], help="Range of Grokfast alpha values to use for hyperparameter search")
@@ -321,24 +327,7 @@ args.dtype = (
 )
 
 # Optuna study settings
-study_name = args.study_name  # Name of the Optuna study
 study_dir = f"{args.output_dir}/optuna-study-{timestamp}"
-n_trials = args.n_trials  # Number of hyperparameter search trials
-lr_range = args.lr_range  # Range of learning rates to use for hyperparameter search
-dtype_categorical = args.dtype_categorical  # Categorical values for the data type to use
-# Categorical values for the learning rate scheduler type
-lr_scheduler_types = args.lr_scheduler_types
-attention_heads_categorical = args.attention_heads_categorical  # Categorical values for the number of attention heads
-train_epochs_range = args.train_epochs_range  # Range of training epochs to use for hyperparameter search
-warmup_ratio_range = args.warmup_ratio_range  # Range of warmup ratios to use for hyperparameter search
-warmup_steps_range = args.warmup_steps_range  # Range of warmup steps to use for hyperparameter search
-# Range of batch sizes to use for hyperparameter search
-per_device_train_batch_size_range = args.per_device_train_batch_size_range
-# Categorical values for the number of gradient accumulation steps
-gradient_accumulation_steps_categorical = args.gradient_accumulation_steps_categorical
-weight_decay_range = args.weight_decay_range  # Range of weight decay values to use for hyperparameter search
-max_grad_norm_range = args.max_grad_norm_range  # Range of maximum gradient norms to use for hyperparameter search
-hidden_layers_range = args.hidden_layers_range  # Range of hidden layers to use for hyperparameter search
 
 # Set the final output directory
 if args.run_hyperparameter_search:
@@ -501,39 +490,49 @@ def compute_objective(metrics: Dict[str, float]) -> float:
 
 # Hyperparameter search space
 def hp_space(trial: optuna.Trial) -> dict:
+    global args
+    
     space = {}
+
+    # Training hyperparameters
     if args.opt_lr:
-        space["learning_rate"] = trial.suggest_float("learning_rate", lr_range[0], lr_range[1])
-    if args.opt_dtype:
-        space["dtype"] = trial.suggest_categorical("dtype", dtype_categorical)
+        space["learning_rate"] = trial.suggest_float("learning_rate", args.lr_range[0], args.lr_range[1])
     if args.opt_lr_scheduler_type:
-        space["lr_scheduler_type"] = trial.suggest_categorical("lr_scheduler_type", lr_scheduler_types)
-    if args.opt_attention_heads:
-        space["num_attention_heads"] = trial.suggest_categorical("num_attention_heads", attention_heads_categorical)
-    if args.opt_num_key_value_heads:
-        space["num_key_value_heads"] = trial.suggest_categorical("num_key_value_heads", args.num_key_value_heads_categorical)
+        space["lr_scheduler_type"] = trial.suggest_categorical("lr_scheduler_type", args.lr_scheduler_types)
     if args.opt_train_epochs:
-        space["num_train_epochs"] = trial.suggest_int("num_train_epochs", train_epochs_range[0], train_epochs_range[1])
+        space["num_train_epochs"] = trial.suggest_int("num_train_epochs", args.train_epochs_range[0], args.train_epochs_range[1])
     if args.opt_per_device_train_batch_size:
         space["per_device_train_batch_size"] = trial.suggest_int(
-            "per_device_train_batch_size", per_device_train_batch_size_range[0], per_device_train_batch_size_range[1])
+            "per_device_train_batch_size", args.per_device_train_batch_size_range[0], args.per_device_train_batch_size_range[1])
     if args.opt_gradient_accumulation_steps:
         space["gradient_accumulation_steps"] = trial.suggest_categorical(
-            "gradient_accumulation_steps", gradient_accumulation_steps_categorical)
+            "gradient_accumulation_steps", args.gradient_accumulation_steps_categorical)
     if args.opt_weight_decay:
-        space["weight_decay"] = trial.suggest_float("weight_decay", weight_decay_range[0], weight_decay_range[1])
+        space["weight_decay"] = trial.suggest_float("weight_decay", args.weight_decay_range[0], args.weight_decay_range[1])
     if args.opt_max_grad_norm:
-        space["max_grad_norm"] = trial.suggest_float("max_grad_norm", max_grad_norm_range[0], max_grad_norm_range[1])
+        space["max_grad_norm"] = trial.suggest_float("max_grad_norm", args.max_grad_norm_range[0], args.max_grad_norm_range[1])
     if args.opt_warmup_ratio:
-        space["warmup_ratio"] = trial.suggest_float("warmup_ratio", warmup_ratio_range[0], warmup_ratio_range[1])
+        space["warmup_ratio"] = trial.suggest_float("warmup_ratio", args.warmup_ratio_range[0], args.warmup_ratio_range[1])
     if args.opt_warmup_steps:
-        space["warmup_steps"] = trial.suggest_int("warmup_steps", warmup_steps_range[0], warmup_steps_range[1])
-    if args.opt_hidden_layers:
-        space["hidden_layers"] = trial.suggest_int("hidden_layers", hidden_layers_range[0], hidden_layers_range[1])
+        space["warmup_steps"] = trial.suggest_int("warmup_steps", args.warmup_steps_range[0], args.warmup_steps_range[1])
     if args.opt_grokfast_ema_alpha:
         space["grokfast_ema_alpha"] = trial.suggest_float("grokfast_ema_alpha", args.grokfast_ema_alpha_range[0], args.grokfast_ema_alpha_range[1])
     if args.opt_grokfast_ema_lambda:
         space["grokfast_ema_lambda"] = trial.suggest_float("grokfast_ema_lambda", args.grokfast_ema_lambda_range[0], args.grokfast_ema_lambda_range[1])
+
+    # Model Configuration
+    if args.opt_dtype:
+        space["dtype"] = trial.suggest_categorical("dtype", args.dtype_categorical)
+    if args.opt_hidden_size:
+        space["hidden_size"] = trial.suggest_categorical("hidden_size", args.hidden_size_categorical)
+    if args.opt_intermediate_size:
+        space["intermediate_size"] = trial.suggest_categorical("intermediate_size", args.intermediate_size_categorical)
+    if args.opt_num_attention_heads:
+        space["num_attention_heads"] = trial.suggest_categorical("num_attention_heads", args.num_attention_heads_categorical)
+    if args.opt_num_key_value_heads:
+        space["num_key_value_heads"] = trial.suggest_categorical("num_key_value_heads", args.num_key_value_heads_categorical)
+    if args.opt_num_hidden_layers:
+        space["num_hidden_layers"] = trial.suggest_int("num_hidden_layers", args.num_hidden_layers_range[0], args.num_hidden_layers_range[1])
 
     return space
 
@@ -633,8 +632,8 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
         model_config = dict(
             hidden_size=args.hidden_size,
             intermediate_size=args.intermediate_size,
-            num_hidden_layers=args.hidden_layers,
-            num_attention_heads=args.attention_heads,
+            num_hidden_layers=args.num_hidden_layers,
+            num_attention_heads=args.num_attention_heads,
             num_key_value_heads=args.num_key_value_heads,
             max_position_embeddings=args.context_length,
             use_cache=False if args.gradient_checkpointing else True,
@@ -646,20 +645,22 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
         if args.flash_attn:
             model_config.update({"attn_implementation":"flash_attention_2"})
 
-        # If this is a trial, set the hyperparameters from the trial
+        # If this is a trial, set the config from the trial
         if trial is not None:
             space = trial.params
 
             if "dtype" in space:
                 model_config["torch_dtype"] = space["dtype"]
+            if "hidden_size" in space:
+                model_config["hidden_size"] = space["hidden_size"]
+            if "intermediate_size" in space:
+                model_config["intermediate_size"] = space["intermediate_size"]
             if "num_attention_heads" in space:
                 model_config["num_attention_heads"] = space["num_attention_heads"]
             if "num_key_value_heads" in space:
                 model_config["num_key_value_heads"] = space["num_key_value_heads"]
-            if "hidden_layers" in space:
-                model_config["num_hidden_layers"] = space["hidden_layers"]
-            if "hidden_size" in space:
-                model_config["hidden_size"] = space["hidden_size"]
+            if "num_hidden_layers" in space:
+                model_config["num_hidden_layers"] = space["num_hidden_layers"]
 
         model_config = AutoConfig.from_pretrained(args.template_model_name, **model_config)
         model = AutoModelForCausalLM.from_config(model_config)
@@ -994,18 +995,20 @@ def run_study():
     This function sets up the study, runs the hyperparameter search, loads the study results,
     visualizes the study results, and saves the best run.
     """
+    global args
+
     study_db_path = f"{results_dir}/optuna.db"
     study_storage = f"sqlite:///{study_db_path}"
 
     optuna_kwargs = {
-        "study_name": study_name,
+        "study_name": args.study_name,
         "storage": study_storage,
         "gc_after_trial": True,
     }
 
     # Set up the pruner
     class CustomPruner(optuna.pruners.BasePruner):
-        def __init__(self, n_warmup_steps=500):
+        def __init__(self, n_warmup_steps: int=500):
             self.n_warmup_steps = n_warmup_steps
             self.median_pruner = optuna.pruners.MedianPruner(n_warmup_steps=n_warmup_steps)
 
@@ -1018,6 +1021,7 @@ def run_study():
             value = trial.intermediate_values[step]
             if value is None:
                 return False
+            
             # Check for NaN or zero
             if math.isnan(value) or value == 0.0:
                 return True
@@ -1031,7 +1035,7 @@ def run_study():
     best_run = trainer.hyperparameter_search(
         hp_space=hp_space,
         compute_objective=compute_objective,
-        n_trials=n_trials,
+        n_trials=args.n_trials,
         direction="minimize" if not args.greater_is_better else "maximize",
         backend="optuna",
         pruner=pruner,
@@ -1040,7 +1044,7 @@ def run_study():
 
     if is_main_process:
         # Load the study from the database
-        study = optuna.load_study(study_name=study_name, storage=study_storage)
+        study = optuna.load_study(study_name=args.study_name, storage=study_storage)
 
         # Visualize the study, saving the plots to the study directory
         vis_dir = f"{results_dir}/study-visualizations/"
