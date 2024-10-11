@@ -241,6 +241,12 @@ args = parser.parse_args()
 if args.num_cpus is None:
     args.num_cpus = 1
 
+# Enable parallelism in the tokenizers library (if multiple CPUs are available)
+if args.num_cpus > 1:
+    os.environ["TOKENIZERS_PARALLELISM"] = "true"
+else:
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 # Set devices
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_devices
 
@@ -248,6 +254,8 @@ import torch
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
+    num_gpus = torch.cuda.device_count()
+    print_if_main_process(f"Detected {num_gpus} GPUs")
 else:
     raise RuntimeError("No CUDA device found. Please use a CUDA-enabled device for training.")
 
