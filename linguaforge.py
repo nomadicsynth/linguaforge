@@ -77,14 +77,14 @@ parser.add_argument("--liger_kernels", action="store_true", help="Use LIGER kern
 
 # Add the arguments for the dataset settings
 parser.add_argument("--dataset_name_or_path", type=str, default=None, required=True, help="Name of the dataset to use")
-parser.add_argument("--dataset_config", type=str, default="default", help="Configuration of the dataset to use")
+parser.add_argument("--dataset_config", type=str, default=None, help="Configuration of the dataset to use")
 parser.add_argument("--dataset_train_split_name", type=str, default="train", help="Name of the training split")
 parser.add_argument("--dataset_test_split_name", type=str, default=None, help="Name of the test split")
 parser.add_argument("--reformat_dataset", type=str, default=None, help="Reformat the dataset using the specified script. The script must contain a 'format_example' function that takes a batch of examples and returns a batch of formatted examples. Example: ```\npython def format_example(batch):\n    if 'text' in batch:\n        batch['text'] = [text.lower() for text in batch['text']]\n    return batch\n```")
-parser.add_argument("--dataset_size_train", type=int, default=0, help="Number of examples to use from the training set. Set to 0 to use the entire training set")
-parser.add_argument("--dataset_size_test", type=int, default=0, help="Number of examples to use from the test set. Set to 0 to use the entire test set")
-parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training if < 1, or number of examples if >= 1")
-parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
+parser.add_argument("--dataset_size_train", type=int, default=0, help="Number of examples to use for the training set. Default is to use whatever is left after the splits.")
+parser.add_argument("--dataset_size_val", type=int, default=None, help="Number of examples to use for the validation set used during training. Keep it small so in-training evals don't take too long")
+parser.add_argument("--dataset_size_test", type=int, default=None, help="Number of examples to use for the test set used after training. Should be a decent size.")
+parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training. Must be less than 1.0")
 parser.add_argument("--shuffle", action="store_true", help="Shuffle the dataset")
 parser.add_argument("--keep_dataset_in_memory", action="store_true", help="Keep the dataset in memory")
 parser.add_argument("--dataset_streaming", action="store_true", help="Enable dataset streaming")
@@ -250,21 +250,21 @@ if torch.cuda.is_available():
 else:
     raise RuntimeError("No CUDA device found. Please use a CUDA-enabled device for training.")
 
-
+import itertools
 import json
+import math
+import random
+import sys
 import time
 import warnings
+from typing import Dict, List, Optional, Tuple, Union
 
 import evaluate
 import optuna
-from datasets import DatasetDict, load_dataset, load_from_disk
-from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
-    AutoConfig,
-    EarlyStoppingCallback,
-    PreTrainedModel,
-)
+from datasets import (Dataset, DatasetDict, IterableDataset,
+                      IterableDatasetDict, load_dataset, load_from_disk)
+from transformers import (AutoConfig, AutoModelForCausalLM, AutoTokenizer,
+                          EarlyStoppingCallback, PreTrainedModel)
 from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.trainer_utils import EvalPrediction
 from transformers.utils import PaddingStrategy, logging
@@ -352,68 +352,126 @@ def load_processing_script(script_path):
 
 
 # Prepare the dataset
-def prepare_dataset(
-    dataset: DatasetDict,
-    dataset_split: float,
-    dataset_size_train: int,
-    dataset_size_test: int,
+def split_dataset(
+    dataset: Union[Dataset, DatasetDict, IterableDataset, IterableDatasetDict],
+    split_sizes: Dict[str, Union[int, float]],
+    split_priority: Optional[List[str]] = None,
     shuffle: bool = False,
+    seed: int = 42,
+    subset_strategy: str = 'head',
+    allow_reshuffle: bool = False,
     batch_size: int = 1000,
-) -> DatasetDict:
+    num_proc: Optional[int] = None
+) -> Union[DatasetDict, IterableDatasetDict]:
     """
-    Prepare the dataset for training and evaluation by splitting it into training and evaluation sets, and selecting a subset of examples from the training and evaluation sets.
-    TODO: It would be better if dataset transforms were used to prepare the dataset. This would allow for more flexibility in the dataset preparation process. Refactor this function to use dataset transforms.
+    Split or subset a dataset into multiple splits based on given sizes.
+
+    Args:
+        dataset: The input dataset.
+        split_sizes: A dictionary of split names and their sizes (int or float).
+        split_priority: Order in which to process splits. Defaults to keys of split_sizes.
+        shuffle: Whether to shuffle the dataset before splitting.
+        seed: Random seed for shuffling.
+        subset_strategy: Strategy for subsetting existing splits ('head', 'tail', 'random').
+        allow_reshuffle: Whether to allow reshuffling of existing splits.
+        batch_size: Batch size for processing iterable datasets.
+        num_proc: Number of processes to use for processing.
+
+    Returns:
+        A DatasetDict or IterableDatasetDict containing the requested splits.
     """
-    global args
+    # Convert to appropriate dictionary type if necessary
+    if isinstance(dataset, (Dataset, IterableDataset)):
+        new_dataset = DatasetDict() if isinstance(dataset, Dataset) else IterableDatasetDict()
+        new_dataset["train"] = dataset
+        dataset = new_dataset
+        del new_dataset
 
-    seed = args.dataset_shuffle_seed if args.dataset_shuffle_seed is not None else args.seed
+    is_iterable = isinstance(dataset, IterableDatasetDict)
+    
+    # Validate and process split sizes
+    total_size = sum(len(split) for split in dataset.values()) if not is_iterable else None
+    split_sizes = _process_split_sizes(split_sizes, total_size)
+    
+    # Set split priority
+    split_priority = split_priority or list(split_sizes.keys())
+    
+    # Initialize result
+    result = IterableDatasetDict() if is_iterable else DatasetDict()
+    
+    # Process each split
+    remaining = None
+    for split_name in split_priority:
+        size = split_sizes[split_name]
+        
+        if split_name in dataset and len(dataset[split_name]) >= size:
+            # Use existing split
+            result[split_name] = _subset_split(dataset[split_name], size, subset_strategy, seed, allow_reshuffle)
+        else:
+            # Create new split from remaining data
+            if remaining is None:
+                remaining = dataset.get('train', next(iter(dataset.values())))
+                if shuffle:
+                    remaining = remaining.shuffle(seed=seed)
+            
+            if is_iterable:
+                result[split_name], remaining = _split_iterable(remaining, size, batch_size, seed)
+            else:
+                result[split_name], remaining = _split_dataset(remaining, size)
+        
+    if remaining is not None:
+        result["train"] = _subset_split(remaining, split_sizes['train'], subset_strategy, seed, allow_reshuffle)
 
-    print_if_main_process("Preparing the dataset...")
-    prepared_dataset = None
+    return result
 
-    # If the dataset is already split into train and test and/or validate, use it as is. Prefer "validation" split over "test" split.
-    if "validation" in dataset:
-        dataset["test"] = dataset["validation"]
-        del dataset["validation"]
-    if "test" in dataset:
-        if shuffle:
-            dataset["train"] = dataset["train"].shuffle(seed)
-            dataset["test"] = dataset["test"].shuffle(seed)
-        if dataset_size_train > 0:
-            print_if_main_process("Selecting", dataset_size_train, "examples from the training set...")
-            dataset["train"] = dataset["train"].select(range(dataset_size_train))
-        if dataset_size_test > 0:
-            print_if_main_process("Selecting", dataset_size_test, "examples from the test set...")
-            dataset["test"] = dataset["test"].select(range(dataset_size_test))
-        prepared_dataset = dataset
+def _process_split_sizes(split_sizes: Dict[str, Union[int, float]], total_size: Optional[int]) -> Dict[str, int]:
+    """Convert split sizes to integers and validate."""
+    if all(isinstance(size, float) for size in split_sizes.values()):
+        assert sum(split_sizes.values()) <= 1, "Float sizes must sum to <= 1"
+        assert total_size is not None, "Total size must be known for fractional splitting"
+        return {name: math.floor(total_size * size) for name, size in split_sizes.items()}
+    elif all(isinstance(size, int) for size in split_sizes.values()):
+        return split_sizes
     else:
-        if shuffle:
-            dataset["train"] = dataset["train"].shuffle(seed)
+        raise ValueError("All split sizes must be either int or float")
 
-        # Select the first dataset_size examples from the training set
-        if dataset_size_train > 0:
-            print_if_main_process("Selecting", dataset_size_train, "examples from the dataset...")
-            prepared_dataset = dataset["train"].select(range(dataset_size_train))
+def _subset_split(split: Union[Dataset, IterableDataset], size: int, strategy: str, seed: int, allow_reshuffle: bool) -> Union[Dataset, IterableDataset]:
+    """Subset an existing split based on the given strategy."""
+    if isinstance(split, IterableDataset):
+        return split.take(size)
+    
+    if size == len(split) or size == 0:
+        return split
+    
+    if strategy == 'head':
+        return split.select(range(size))
+    elif strategy == 'tail':
+        return split.select(range(len(split) - size, len(split)))
+    elif strategy == 'random':
+        if allow_reshuffle:
+            return split.shuffle(seed=seed).select(range(size))
         else:
-            dataset_size_train = len(dataset["train"])
-            print_if_main_process("Using the entire dataset of size", dataset_size_train)
-            prepared_dataset = dataset["train"]
+            indices = list(range(len(split)))
+            rng = random.Random(seed)
+            rng.shuffle(indices)
+            return split.select(indices[:size])
+    else:
+        raise ValueError(f"Unknown subset strategy: {strategy}")
 
-        # Split the dataset into training and evaluation sets (dataset_split% for training, 1-dataset_split% for evaluation)
-        print_if_main_process("Splitting the dataset into training and evaluation sets...")
-        print_if_main_process("Training set size:", round(len(prepared_dataset) * dataset_split))
-        print_if_main_process("Evaluation set size:", len(prepared_dataset) - round(len(prepared_dataset) * dataset_split))
-        prepared_dataset = prepared_dataset.train_test_split(train_size=dataset_split, seed=seed, shuffle=shuffle)
+def _split_dataset(dataset: Dataset, size: int) -> Tuple[Dataset, Dataset]:
+    """Split a Dataset into two parts."""
+    return dataset.select(range(size)), dataset.select(range(size, len(dataset)))
 
-    if args.reformat_dataset:
-        processing_module = load_processing_script(args.reformat_dataset)
-        if hasattr(processing_module, 'format_example'):
-            prepared_dataset.set_transform(processing_module.format_example)
-        else:
-            raise AttributeError("The processing script must contain a 'format_example' function")
+def _split_iterable(dataset: IterableDataset, size: int, batch_size: int, seed: int) -> Tuple[IterableDataset, IterableDataset]:
+    """Split an IterableDataset into two parts."""
+    return dataset.take(size), dataset.skip(size)
 
-    # Return the training and evaluation datasets
-    return prepared_dataset
+def reformat_dataset(dataset, reformat_dataset):
+    processing_module = load_processing_script(reformat_dataset)
+    if hasattr(processing_module, 'format_example'):
+        dataset.set_transform(processing_module.format_example)
+    else:
+        raise AttributeError("The processing script must contain a 'format_example' function")
 
 
 # Load the evaluation metrics
@@ -700,33 +758,46 @@ print_if_main_process(
 )
 dataset = None
 try:
+    dataset = load_from_disk(args.dataset_name_or_path, keep_in_memory=args.keep_dataset_in_memory)
+except:
     dataset = load_dataset(args.dataset_name_or_path, args.dataset_config, keep_in_memory=args.keep_dataset_in_memory, streaming=args.dataset_streaming)
-except ValueError as ve:
-    if "Please use `load_from_disk` instead." in str(ve):
-        dataset = load_from_disk(args.dataset_name_or_path, keep_in_memory=args.keep_dataset_in_memory)
 
 if dataset is None:
     raise ValueError(
         f"Could not load dataset from {args.dataset_name_or_path} ({args.dataset_config})."
     )
-elif "train" not in dataset:
-    new_dataset = DatasetDict()
-    new_dataset["train"] = dataset
-    dataset = new_dataset
-    del new_dataset
 
 # Prepare the dataset
-dataset = prepare_dataset(
+if "val" in dataset:
+    dataset["validation"] = dataset["val"]
+    del dataset["val"]
+
+split_sizes={}
+split_priority=[]
+if args.dataset_size_test is not None:
+    split_sizes["test"] = args.dataset_size_test
+    split_priority.append("test")
+if args.dataset_size_val is not None:
+    split_sizes["validation"] = args.dataset_size_val
+    split_priority.append("validation")
+if args.dataset_size_train is not None:
+    split_sizes["train"] = args.dataset_size_train
+    split_priority.append("train")
+
+dataset = split_dataset(
     dataset=dataset,
-    dataset_split=args.dataset_split,
-    dataset_size_train=args.dataset_size_train,
-    dataset_size_test=args.dataset_size_test,
+    split_sizes=split_sizes,
+    split_priority=split_priority,
     shuffle=args.shuffle,
-    batch_size=args.dataset_batch_size,
+    seed=args.dataset_shuffle_seed if args.dataset_shuffle_seed is not None else args.seed
 )
 
+# Apply reformatting if specified
+if args.reformat_dataset:
+    reformat_dataset(dataset, args)
+
 # Save the prepared dataset
-if args.save_prepared_dataset:
+if args.save_prepared_dataset or args.save_prepared_dataset_only:
     # Only save if main process
     if is_main_process:
         dataset.save_to_disk(args.dataset_save_path)
@@ -742,11 +813,14 @@ if is_main_process:
             {
                 "dataset_name_or_path": args.dataset_name_or_path,
                 "dataset_config": args.dataset_config,
-                "dataset_split": args.dataset_split,
-                "dataset_size": len(dataset),
+                "dataset_split_sizes": split_sizes,
+                "dataset_shuffle_seed": args.dataset_shuffle_seed if args.dataset_shuffle_seed is not None else args.seed,
+                "dataset_reformat": args.reformat_dataset,
+                "dataset_save_path": args.dataset_save_path,
                 "shuffle": args.shuffle,
-                "batch_size": args.dataset_batch_size,
+                "batch_size": args.dataset_batch_size if args.dataset_batch_size is not None else args.batch_size,
                 "stride": args.stride,
+                "num_cpus": args.num_cpus,
             },
             f,
             indent=2,
@@ -906,7 +980,7 @@ training_args = SFTConfig(
 trainer = SFTTrainer(
     args=training_args,
     train_dataset=dataset["train"],
-    eval_dataset=dataset["test"],
+    eval_dataset=dataset["validation"],
     compute_metrics=compute_metrics,
     **sfttrainer_args
 )
