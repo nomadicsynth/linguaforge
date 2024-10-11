@@ -93,6 +93,7 @@ parser.add_argument("--dataset_packing", action="store_true", help="Enable datas
 parser.add_argument("--save_prepared_dataset", action="store_true", help="Save the prepared dataset")
 parser.add_argument("--save_prepared_dataset_only", action="store_true", help="Save the prepared dataset and exit")
 parser.add_argument("--dataset_save_path", type=str, default="dataset", help="Path to save the prepared dataset")
+parser.add_argument("--dataset_cache_path", type=str, default=None, help="Path to save the prepared dataset cache")
 
 # Add the arguments for the tokenization settings
 parser.add_argument("--tokenizer_name_or_path", type=str, default=None, help="Name or path of the tokeniser")
@@ -103,7 +104,8 @@ parser.add_argument("--stride", type=int, default=150, help="Stride for splittin
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-parser.add_argument("--dataset_shuffle_seed", type=int, default=42, help="Random seed for dataset shuffling only")
+parser.add_argument("--model_init_seed", type=int, default=None, help="Random seed for model initialization only")
+parser.add_argument("--dataset_shuffle_seed", type=int, default=None, help="Random seed for dataset shuffling only")
 parser.add_argument("--dtype", type=str, default="bfloat16",
                     help="Data type to use for the model",
                     choices=["float16", "bfloat16", "float32"])
