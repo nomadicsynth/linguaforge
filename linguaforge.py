@@ -1053,7 +1053,43 @@ def run_training():
     # Save the model
     model_path = save_model(results_dir)
 
+    # Evaluation
+    eval_results = None
+    if "test" in dataset:
+        print_if_main_process("Evaluating the model on the heldout test dataset...")
+        # Tokenize the test dataset
+        def tokenize_function(examples):
+            global tokenizer
+            tokenized_data = tokenizer(
+                examples["text"],  # Adjust this to match your dataset's column name
+                padding="max_length",
+                truncation=True,
+                max_length=args.context_length,
+                return_tensors="pt"
+            )
+
+            tokenized_data["labels"] = tokenized_data["input_ids"].clone()
+            return tokenized_data
+
+        # Tokenize the test dataset
+        tokenized_test_dataset = dataset["test"].map(
+            tokenize_function,
+            batched=True,
+            batch_size=args.dataset_batch_size if args.dataset_batch_size is not None else args.batch_size,
+            remove_columns=dataset["test"].column_names
+        )
+        eval_results = trainer.evaluate(tokenized_test_dataset)
+
     # Display the results
+    print_if_main_process(f"Final results:")
+    print_if_main_process(f"Train Loss: {trainer.state.log_history[-2]['train_loss']:.4f}")
+    print_if_main_process(f"Train PPL: {math.exp(trainer.state.log_history[-2]['train_loss']):.4f}")
+    # print_if_main_process(f"Validation Loss: {trainer.state.log_history[-3]['eval_loss']:.4f}")
+    # print_if_main_process(f"Validation PPL: {math.exp(trainer.state.log_history[-3]['eval_loss']):.4f}")
+    if eval_results:
+        print_if_main_process(f"Evaluation Loss: {eval_results['eval_loss']:.4f}")
+        print_if_main_process(f"Evaluation PPL: {math.exp(eval_results['eval_loss']):.4f}")
+    print_if_main_process()
     print_if_main_process("Results directory:", results_dir)
     print_if_main_process("Model saved to:", model_path)
     print_if_main_process("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
