@@ -1,21 +1,21 @@
-import math
+import argparse
 import os
-import sys
-from typing import Dict
 
 # Set environment variables for NCCL blocking wait and error handling
 os.environ['TORCH_NCCL_BLOCKING_WAIT'] = '1'
 os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
-
-# Enable parallelism in the tokenizers library
-os.environ["TOKENIZERS_PARALLELISM"] = "true"
 
 # Print the local rank
 is_main_process = os.environ.get("LOCAL_RANK", 0) == "0" or os.environ.get("LOCAL_RANK", -1) == -1
 print("Main process:", is_main_process)
 print("Local rank:", os.environ.get("LOCAL_RANK", -1))
 
-import argparse
+
+# Function that prints to the console only if the process is the main process
+def print_if_main_process(*args, **kwargs):
+    global is_main_process
+    if is_main_process:
+        print(*args, **kwargs)
 
 
 def int_or_float(value):
@@ -99,6 +99,7 @@ parser.add_argument("--tokenizer_name_or_path", type=str, default=None, help="Na
 parser.add_argument("--additional_special_tokens", type=str, nargs="+",
                     default=None, help="Additional special tokens to add to the tokenizer")
 parser.add_argument("--chat_template", type=str, default=None, help="Chat template for chatbot training")
+parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
 
 # Add the arguments for the training settings
 parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
@@ -106,7 +107,7 @@ parser.add_argument("--dataset_shuffle_seed", type=int, default=42, help="Random
 parser.add_argument("--dtype", type=str, default="bfloat16",
                     help="Data type to use for the model",
                     choices=["float16", "bfloat16", "float32"])
-parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for the AdamW optimizer")
+parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for the model")
 parser.add_argument(
     "--lr_scheduler_type",
     type=str,
@@ -251,6 +252,7 @@ else:
 # Set devices
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_devices
 
+print_if_main_process("Initializing PyTorch")
 import torch
 
 if torch.cuda.is_available():
@@ -297,14 +299,6 @@ warnings.filterwarnings(
     category=FutureWarning,
     append=True,
 )
-
-
-# Function that prints to the console only if the process is the main process
-def print_if_main_process(*args, **kwargs):
-    global is_main_process
-    if is_main_process:
-        print(*args, **kwargs)
-
 
 # Get the logger
 logger = logging.get_logger(__name__)
@@ -701,6 +695,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
 # Initialize the model
 def model_init(trial: optuna.Trial) -> PreTrainedModel:
     global tokenizer
+    
     if trial is not None:
         print_if_main_process("\033[93m" + f"Trial {trial.number}" + "\033[0m")
         # Print the hyperparameters as a single-line JSON string
@@ -1090,6 +1085,7 @@ def run_training():
     print_if_main_process()
 
     # Save the model
+    print_if_main_process("Saving the model...")
     model_path = save_model(results_dir)
 
     # Evaluation
