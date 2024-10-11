@@ -195,13 +195,14 @@ parser.add_argument("--hidden_size_categorical", type=int, nargs="+",
                     default=[128, 256, 512, 1024], help="Categorical values for the hidden size")
 parser.add_argument("--opt_intermediate_size", action="store_true", help="Optimize the intermediate size")
 parser.add_argument("--intermediate_size_categorical", type=int, nargs="+",
-                    default=[128, 256, 512, 1024], help="Categorical values for the intermediate size")
+                    default=[256, 512, 1024, 2048, 4096], help="Categorical values for the intermediate size")
+parser.add_argument("--opt_attention", action="store_true", help="Optimize the number of attention heads and kv heads simultaneously (recommended)")
 parser.add_argument("--opt_num_attention_heads", action="store_true", help="Optimize the number of attention heads")
 parser.add_argument("--num_attention_heads_categorical", type=int, nargs="+",
-                    default=[8, 16, 32], help="Categorical values for the number of attention heads")
+                    default=[8, 12, 16, 32], help="Categorical values for the number of attention heads")
 parser.add_argument("--opt_num_key_value_heads", action="store_true", help="Optimize the number of key-value heads")
 parser.add_argument("--num_key_value_heads_categorical", type=int, nargs="+",
-                    default=[1, 4, 8, 16, 32], help="Categorical values for the number of key-value heads")
+                    default=[2, 4, 8, 16, 32], help="Categorical values for the number of key-value heads")
 parser.add_argument("--opt_num_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
 parser.add_argument("--num_hidden_layers_range", type=int, nargs=2,
                     default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
@@ -546,6 +547,31 @@ def compute_objective(metrics: Dict[str, float]) -> float:
         return metrics["eval_loss"]
 
 
+def generate_valid_attention_kv_configs() -> List[Dict[str, int]]:
+    attention_heads = args.num_attention_heads_categorical if args.opt_num_attention_heads else [args.num_attention_heads]
+    key_value_heads = args.num_key_value_heads_categorical if args.opt_num_key_value_heads else [args.num_key_value_heads]
+    
+    valid_configs = []
+    
+    for ah, kvh in itertools.product(attention_heads, key_value_heads):
+        if ah % kvh == 0:
+            valid_configs.append(f"{ah}_{kvh}")
+    
+    return valid_configs
+
+
+if args.opt_attention or (args.opt_num_attention_heads and args.opt_num_key_value_heads):
+    valid_attention_kv_configs = generate_valid_attention_kv_configs()
+
+
+def parse_attention_kv_config(config_str: str) -> Dict[str, int]:
+    num_attention_heads, num_key_value_heads = map(int, config_str.split('_'))
+    return {
+        "num_attention_heads": num_attention_heads,
+        "num_key_value_heads": num_key_value_heads
+    }
+
+
 # Hyperparameter search space
 def hp_space(trial: optuna.Trial) -> dict:
     global args
@@ -554,7 +580,7 @@ def hp_space(trial: optuna.Trial) -> dict:
 
     # Training hyperparameters
     if args.opt_lr:
-        space["learning_rate"] = trial.suggest_float("learning_rate", args.lr_range[0], args.lr_range[1])
+        space["learning_rate"] = trial.suggest_float("learning_rate", args.lr_range[0], args.lr_range[1], log=True)
     if args.opt_lr_scheduler_type:
         space["lr_scheduler_type"] = trial.suggest_categorical("lr_scheduler_type", args.lr_scheduler_types)
     if args.opt_train_epochs:
@@ -566,11 +592,11 @@ def hp_space(trial: optuna.Trial) -> dict:
         space["gradient_accumulation_steps"] = trial.suggest_categorical(
             "gradient_accumulation_steps", args.gradient_accumulation_steps_categorical)
     if args.opt_weight_decay:
-        space["weight_decay"] = trial.suggest_float("weight_decay", args.weight_decay_range[0], args.weight_decay_range[1])
+        space["weight_decay"] = trial.suggest_float("weight_decay", args.weight_decay_range[0], args.weight_decay_range[1], log=True)
     if args.opt_max_grad_norm:
-        space["max_grad_norm"] = trial.suggest_float("max_grad_norm", args.max_grad_norm_range[0], args.max_grad_norm_range[1])
+        space["max_grad_norm"] = trial.suggest_float("max_grad_norm", args.max_grad_norm_range[0], args.max_grad_norm_range[1], log=True)
     if args.opt_warmup_ratio:
-        space["warmup_ratio"] = trial.suggest_float("warmup_ratio", args.warmup_ratio_range[0], args.warmup_ratio_range[1])
+        space["warmup_ratio"] = trial.suggest_uniform("warmup_ratio", args.warmup_ratio_range[0], args.warmup_ratio_range[1])
     if args.opt_warmup_steps:
         space["warmup_steps"] = trial.suggest_int("warmup_steps", args.warmup_steps_range[0], args.warmup_steps_range[1])
     if args.opt_grokfast_ema_alpha:
@@ -585,12 +611,18 @@ def hp_space(trial: optuna.Trial) -> dict:
         space["hidden_size"] = trial.suggest_categorical("hidden_size", args.hidden_size_categorical)
     if args.opt_intermediate_size:
         space["intermediate_size"] = trial.suggest_categorical("intermediate_size", args.intermediate_size_categorical)
-    if args.opt_num_attention_heads:
-        space["num_attention_heads"] = trial.suggest_categorical("num_attention_heads", args.num_attention_heads_categorical)
-    if args.opt_num_key_value_heads:
-        space["num_key_value_heads"] = trial.suggest_categorical("num_key_value_heads", args.num_key_value_heads_categorical)
     if args.opt_num_hidden_layers:
         space["num_hidden_layers"] = trial.suggest_int("num_hidden_layers", args.num_hidden_layers_range[0], args.num_hidden_layers_range[1])
+
+    if args.opt_attention or (args.opt_num_attention_heads and args.opt_num_key_value_heads):
+        suggestion = trial.suggest_categorical("attention_kv_config", valid_attention_kv_configs)
+        suggestion = parse_attention_kv_config(suggestion)
+        space.update(suggestion)
+    else:
+        if args.opt_num_attention_heads:
+            space["num_attention_heads"] = trial.suggest_categorical("num_attention_heads", args.num_attention_heads_categorical)
+        elif args.opt_num_key_value_heads:
+            space["num_key_value_heads"] = trial.suggest_categorical("num_key_value_heads", args.num_key_value_heads_categorical)
 
     return space
 
@@ -713,12 +745,14 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
                 model_config["hidden_size"] = space["hidden_size"]
             if "intermediate_size" in space:
                 model_config["intermediate_size"] = space["intermediate_size"]
+            if "num_hidden_layers" in space:
+                model_config["num_hidden_layers"] = space["num_hidden_layers"]
             if "num_attention_heads" in space:
                 model_config["num_attention_heads"] = space["num_attention_heads"]
             if "num_key_value_heads" in space:
                 model_config["num_key_value_heads"] = space["num_key_value_heads"]
-            if "num_hidden_layers" in space:
-                model_config["num_hidden_layers"] = space["num_hidden_layers"]
+            if "attention_kv_config" in space:
+                model_config.update(parse_attention_kv_config(space["attention_kv_config"]))
 
         model_config = AutoConfig.from_pretrained(args.template_model_name, **model_config)
         model = AutoModelForCausalLM.from_config(model_config)
