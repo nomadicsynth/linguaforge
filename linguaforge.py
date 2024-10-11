@@ -151,13 +151,14 @@ parser.add_argument(
     type=str,
     default="adamw_bnb_8bit",
     choices=[
-        'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla',
-        'adamw_torch_npu_fused', 'adamw_apex_fused', 'adafactor', 'adamw_anyprecision',
-        'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'lion_8bit', 'lion_32bit',
-        'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit',
-        'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
-        'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
-        'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
+        'adamw_hf', 'adamw_torch', 'adamw_torch_fused', 'adamw_torch_xla', 'adamw_torch_npu_fused',
+        'adamw_apex_fused', 'adafactor', 'adamw_anyprecision', 'adamw_torch_4bit', 'ademamix',
+        'sgd', 'adagrad', 'adamw_bnb_8bit', 'adamw_8bit', 'ademamix_8bit', 'lion_8bit', 'lion_32bit',
+        'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_ademamix_32bit', 'paged_ademamix_8bit',
+        'paged_lion_32bit', 'paged_lion_8bit', 'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit',
+        'rmsprop_bnb_32bit', 'galore_adamw', 'galore_adamw_8bit', 'galore_adafactor',
+        'galore_adamw_layerwise', 'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise',
+        'lomo', 'adalomo', 'grokadamw', 'schedule_free_adamw', 'schedule_free_sgd'
     ],
     help="Optimizer to use"
 )
