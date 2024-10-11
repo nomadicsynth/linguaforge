@@ -1030,41 +1030,31 @@ if args.early_stopping:
 
 
 def run_training():
+    global args, dataset, num_gpus, results_dir
+
     # Print the hyperparameters
     print_if_main_process("Hyperparameters:")
     print_if_main_process(f"  Learning rate: {args.learning_rate}")
     print_if_main_process(f"  Learning rate scheduler: {args.lr_scheduler_type}")
     print_if_main_process(f"  Per-device train batch size: {args.per_device_train_batch_size}")
+    print_if_main_process(f"  Per-device eval batch size: {args.per_device_eval_batch_size}")
+    print_if_main_process(f"  Gradient accumulation steps: {args.gradient_accumulation_steps}")
+    effective_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps * num_gpus
+    print_if_main_process(f"  Effective batch size: {effective_batch_size}")
     print_if_main_process(f"  Epochs: {args.num_train_epochs}")
     if args.warmup_steps > 0:
         print_if_main_process(f"  Warmup steps: {args.warmup_steps}")
-    else:
+    elif args.warmup_ratio > 0:
         print_if_main_process(f"  Warmup ratio: {args.warmup_ratio}")
-    print_if_main_process(f"  Attention heads: {args.attention_heads}")
-    print_if_main_process(
-        f"  Gradient accumulation steps: {args.gradient_accumulation_steps}"
-    )
     print_if_main_process(f"  Weight decay: {args.weight_decay}")
     print_if_main_process(f"  Results directory: {results_dir}")
     print_if_main_process(f"  Optimizer: {args.optimizer}")
     print_if_main_process()
 
-    # Save the hyperparameters to a file
-    hyperparameters = {
-        "learning_rate": args.learning_rate,
-        "lr_scheduler_type": args.lr_scheduler_type,
-        "per_device_train_batch_size": args.per_device_train_batch_size,
-        "num_train_epochs": args.num_train_epochs,
-        "warmup_ratio": args.warmup_ratio if args.warmup_steps == 0 else 0,
-        "warmup_steps": args.warmup_steps,
-        "attention_heads": args.attention_heads,
-        "gradient_accumulation_steps": args.gradient_accumulation_steps,
-        "weight_decay": args.weight_decay,
-        "results_dir": results_dir,
-        "optim": args.optimizer,
-    }
-    with open(f"{results_dir}/hyperparameters.json", "w") as f:
-        json.dump(hyperparameters, f, indent=2)
+    # Save the SFTConfig to a file
+    training_args_path = f"{results_dir}/training_args.json"
+    with open(training_args_path, "w") as f:
+        json.dump(training_args.to_dict(), f, indent=2)
 
     # Train the model
     try:
@@ -1076,7 +1066,9 @@ def run_training():
             save_model(results_dir)
             print("Training progress saved.")
             print("Training interrupted by user.")
-            print(f"Resume training by running the following command:\npython {" ".join(sys.argv[1:])} --output_dir {results_dir} --resume_from_checkpoint")
+            # Replace output dir in sys.argv with results_dir
+            sys.argv[sys.argv.index("--output_dir") + 1] = results_dir
+            print(f"Resume training by running the following command:\npython {" ".join(sys.argv[1:])} --resume_from_checkpoint")
         else:
             time.sleep(5)
         exit()
@@ -1127,8 +1119,6 @@ def run_training():
     print_if_main_process()
     print_if_main_process("Results directory:", results_dir)
     print_if_main_process("Model saved to:", model_path)
-    print_if_main_process("Hyperparameters saved to:", f"{results_dir}/hyperparameters.json")
-    print_if_main_process("Logs saved to:", f"{results_dir}/logs/")
     print_if_main_process()
     print_if_main_process("You can now fine-tune the model further or use it for generating text.")
 
