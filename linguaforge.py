@@ -812,6 +812,7 @@ def run_training():
     print_if_main_process(f"  Weight decay: {args.weight_decay}")
     print_if_main_process(f"  Results directory: {results_dir}")
     print_if_main_process(f"  Optimizer: {args.optimizer}")
+    print_if_main_process(f"  Optimizer args: {args.optimizer_args}")
     print_if_main_process()
 
     # Save the hyperparameters to a file
