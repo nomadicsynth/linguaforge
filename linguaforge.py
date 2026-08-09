@@ -407,7 +407,7 @@ metric_accuracy = evaluate.load("accuracy")
 
 
 # Hyperparameter search objective function
-def compute_objective(metrics: Dict[str, float]) -> float:
+def compute_objective(metrics: dict[str, float]) -> float:
     """
     The objective to maximize/minimize when doing an hyperparameter search. It is the evaluation loss if no
     metric is provided in args.metric_for_best_model. Otherwise, it is the metric provided in args.metric_for_best_model.
