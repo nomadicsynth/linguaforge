@@ -647,21 +647,10 @@ training_kwargs = {}
 # Set the output directory
 training_kwargs.update({"output_dir": results_dir})
 
-if args.eval_steps:
-    training_kwargs.update({
-        "eval_strategy": "steps",
-        "eval_steps": args.eval_steps
-    })
-elif args.evals_per_epoch:
-    if args.evals_per_epoch == 1:
-        training_kwargs.update({"eval_strategy": "epoch"})
-    else:
-        training_kwargs.update({
-            "eval_strategy": "steps",
-            "eval_steps": (1 / args.evals_per_epoch) / args.num_train_epochs
-        })
-else:
-    training_kwargs.update({"eval_strategy": "no"})
+training_kwargs.update({
+    "eval_strategy": args.eval_strategy,
+    "eval_steps": args.eval_steps
+})
 
 print_if_main_process(f"eval_strategy = {training_kwargs["eval_strategy"]}")
 if training_kwargs["eval_strategy"] == "steps":
@@ -678,19 +667,13 @@ print_if_main_process(f"save_strategy = {training_kwargs["save_strategy"]}")
 if training_kwargs["save_strategy"] == "steps":
     print_if_main_process(f"save_steps = {training_kwargs["save_steps"]}")
 
-if args.logging_steps is None:
-    training_kwargs.update({"logging_strategy": "no"})
-elif args.logging_steps == 0:
-    training_kwargs.update({"logging_strategy": "epoch"})
-else:
-    training_kwargs.update({
-        "logging_strategy": "steps",
-        "logging_steps": training_kwargs["eval_steps"] if args.logging_steps is None else args.logging_steps,
-    })
+training_kwargs.update({
+    "logging_strategy": args.logging_strategy,
+    "logging_steps": args.logging_steps,
+})
 
 print_if_main_process(f"logging_strategy = {training_kwargs["logging_strategy"]}")
-if training_kwargs["logging_strategy"] == "steps":
-    print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
+print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
 
 # Set the run name
 if args.run_name:
@@ -759,7 +742,7 @@ training_args = SFTConfig(
     metric_for_best_model=args.metric_for_best_model,
     dataset_text_field="text",
     packing=args.dataset_packing,
-    max_seq_length=args.context_length,
+    max_length=args.context_length,
     dataset_num_proc=args.num_cpus,
     dataloader_num_workers=args.num_cpus,
     accelerator_config={"split_batches": True},
@@ -882,11 +865,25 @@ def run_training():
         eval_results = trainer.evaluate(tokenized_test_dataset)
 
     # Display the results
-    print_if_main_process(f"Final results:")
-    print_if_main_process(f"Train Loss: {trainer.state.log_history[-2]['train_loss']:.4f}")
-    print_if_main_process(f"Train PPL: {math.exp(trainer.state.log_history[-2]['train_loss']):.4f}")
-    # print_if_main_process(f"Validation Loss: {trainer.state.log_history[-3]['eval_loss']:.4f}")
-    # print_if_main_process(f"Validation PPL: {math.exp(trainer.state.log_history[-3]['eval_loss']):.4f}")
+    print_if_main_process()
+    print_if_main_process("--- Final results ---")
+    print_if_main_process("Training results:")
+    print_if_main_process(f"Training runtime: {trainer.state.log_history[-1]['train_runtime']:.2f} seconds")
+    print_if_main_process(f"Training samples per second: {trainer.state.log_history[-1]['train_samples_per_second']:.2f}")
+    print_if_main_process(f"Training steps per second: {trainer.state.log_history[-1]['train_steps_per_second']:.2f}")
+    print_if_main_process(f"Total FLOPs: {trainer.state.log_history[-1]['total_flos']:.2e}")
+    print_if_main_process(f"Train Loss: {trainer.state.log_history[-4]['loss']:.4f}")
+    print_if_main_process(f"Train PPL: {math.exp(trainer.state.log_history[-4]['loss']):.4f}")
+    print_if_main_process(f"Epochs: {trainer.state.log_history[-1]['epoch']:.2f}")
+    print_if_main_process(f"Num input tokens seen: {trainer.state.log_history[-1]['num_input_tokens_seen']}")
+    print_if_main_process(f"Num steps: {trainer.state.log_history[-1]['step']}")
+    print_if_main_process()
+    print_if_main_process("Validation results:")
+    print_if_main_process(f"Validation Loss: {trainer.state.log_history[-2]['eval_loss']:.4f}")
+    print_if_main_process(f"Validation PPL: {math.exp(trainer.state.log_history[-2]['eval_loss']):.4f}")
+    print_if_main_process(f"Validation Accuracy: {trainer.state.log_history[-2]['eval_accuracy']:.4f}")
+    print_if_main_process(f"Validation F1: {trainer.state.log_history[-2]['eval_f1']:.4f}")
+    print_if_main_process(f"Validation Mean Token Accuracy: {trainer.state.log_history[-2]['eval_mean_token_accuracy']:.4f}")
     if eval_results:
         print_if_main_process(f"Evaluation Loss: {eval_results['eval_loss']:.4f}")
         print_if_main_process(f"Evaluation PPL: {math.exp(eval_results['eval_loss']):.4f}")
