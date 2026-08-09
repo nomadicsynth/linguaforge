@@ -544,7 +544,7 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
 
     model_kwargs = {"torch_dtype":args.dtype}
     if args.flash_attn:
-        model_kwargs.update({"attn_implementation":"flash_attention_2"})
+        model_kwargs.update({"attn_implementation":"kernels-community/flash-attn2"})
 
     # If a pretrained model is provided, load it
     if args.pretrained_model_name_or_path:
@@ -565,7 +565,7 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
             pad_token_id=tokenizer.pad_token_id,
             sliding_window=None,
             torch_dtype=args.dtype,
-            attn_implementation="flash_attention_2",
+            attn_implementation="kernels-community/flash-attn2",
         )
 
         # If this is a trial, set the hyperparameters from the trial
