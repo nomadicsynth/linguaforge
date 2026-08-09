@@ -774,8 +774,17 @@ with open(f"{results_dir}/dataset_config.json", "w") as f:
         indent=2,
     )
 
+# Add this before creating the trainer
+class SFTTrainerWithModelInit(SFTTrainer):
+    def __init__(self, model=None, model_init=None, **kwargs):
+        if model_init is not None and model is None:
+            model = model_init()
+        assert model is not None, "Either model or model_init must be provided"
+        super().__init__(model=model, **kwargs)
+        self.model_init = model_init
+
 # Initialize the trainer
-trainer = SFTTrainer(
+trainer = SFTTrainerWithModelInit(
     args=training_args,
     train_dataset=dataset["train"],
     eval_dataset=dataset["test"],
