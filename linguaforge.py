@@ -61,7 +61,7 @@ from transformers import (AutoConfig, AutoModelForCausalLM, AutoTokenizer,
 from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.trainer_utils import EvalPrediction
 from transformers.utils import PaddingStrategy, logging
-from trl import SFTConfig, SFTTrainer, set_seed
+from trl import SFTConfig, SFTTrainer
 
 # Ignore the warning about gathering scalars
 warnings.filterwarnings(
@@ -117,9 +117,6 @@ study_dir = f"{args.output_dir}/optuna-study-{timestamp}"
 # Set the final output directory
 if args.run_hyperparameter_search:
     results_dir = study_dir
-
-# Set seed for reproducibility
-set_seed(args.seed)
 
 # Create the results directory
 if is_main_process and not os.path.exists(results_dir):
