@@ -143,7 +143,7 @@ parser.add_argument(
         'paged_adamw_32bit', 'paged_adamw_8bit', 'paged_lion_32bit', 'paged_lion_8bit',
         'rmsprop', 'rmsprop_bnb', 'rmsprop_bnb_8bit', 'rmsprop_bnb_32bit', 'galore_adamw',
         'galore_adamw_8bit', 'galore_adafactor', 'galore_adamw_layerwise',
-        'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise'
+        'galore_adamw_8bit_layerwise', 'galore_adafactor_layerwise', 'grokadamw'
     ],
     help="Optimizer to use"
 )
@@ -156,11 +156,6 @@ parser.add_argument("--wandb", action="store_true", help="Enable logging to Weig
 parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
 parser.add_argument("--early_stopping_patience", type=int, default=3, help="Number of epochs to wait before early stopping")
 parser.add_argument("--early_stopping_threshold", type=float, default=0.0, help="Minimum change in the monitored quantity to qualify as an improvement")
-
-# Grokfast Accelerated Grokking
-parser.add_argument("--grokfast_ema", action="store_true", help="Enable Grokfast EMA slow-gradient amplification")
-parser.add_argument("--grokfast_ema_alpha", type=float, default=0.98, help="Alpha parameter for Grokfast EMA")
-parser.add_argument("--grokfast_ema_lambda", type=float, default=2.0, help="Lambda parameter for Grokfast EMA")
 
 # Add the arguments for the Optuna study
 parser.add_argument("--run_hyperparameter_search", action="store_true", help="Enable hyperparameter search")
@@ -206,11 +201,6 @@ parser.add_argument("--warmup_steps_range", type=int, nargs=2,
 parser.add_argument("--opt_hidden_layers", action="store_true", help="Optimize the number of hidden layers")
 parser.add_argument("--hidden_layers_range", type=int, nargs=2,
                     default=[1, 18], help="Range of hidden layers to use for hyperparameter search")
-parser.add_argument("--opt_grokfast_ema", action="store_true", help="Optimize Grokfast EMA settings")
-parser.add_argument("--grokfast_ema_alpha_range", type=float, nargs=2,
-                    default=[0.8, 0.99], help="Range of alpha values to use for hyperparameter search")
-parser.add_argument("--grokfast_ema_lambda_range", type=float, nargs=2,
-                    default=[1.0, 3.0], help="Range of lambda values to use for hyperparameter search")
 
 args = parser.parse_args()
 
@@ -697,14 +687,6 @@ print_if_main_process(f"logging_strategy = {training_kwargs["logging_strategy"]}
 if training_kwargs["logging_strategy"] == "steps":
     print_if_main_process(f"logging_steps = {training_kwargs["logging_steps"]}")
 
-# Add the GrokFast options if they're passed
-if args.grokfast_ema:
-    training_kwargs.update({
-        "grokfast_ema": args.grokfast_ema,
-        "grokfast_ema_alpha": args.grokfast_ema_alpha,
-        "grokfast_ema_lambda": args.grokfast_ema_lambda
-    })
-
 training_args = SFTConfig(
     output_dir=results_dir,
     logging_dir=f"{results_dir}/logs/",
@@ -724,6 +706,7 @@ training_args = SFTConfig(
     lr_scheduler_type=args.lr_scheduler_type,
     lr_scheduler_kwargs=args.lr_scheduler_args,
     optim=args.optimizer,
+    optim_args=args.optimizer_args,
     weight_decay=args.weight_decay,
     seed=args.seed,
     data_seed=args.seed,
