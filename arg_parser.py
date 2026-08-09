@@ -29,7 +29,6 @@ class KeyValueAction(argparse.Action):
 
 
 def setup_arg_parser():
-    # Set up command-line arguments with argparse
     parser = argparse.ArgumentParser(description="Train a model using the SFTTrainer")
 
     parser.add_argument("--project_name", type=str, required=True, help="Name of the project")
@@ -38,15 +37,15 @@ def setup_arg_parser():
     )
     parser.add_argument("--run_name", type=str, default=None, help="Name of the run")
 
-    # Add the arguments for the distributed training settings
+    # Distributed Training
     parser.add_argument("--num_cpus", type=int, default=None, help="Number of CPUs to use")
     parser.add_argument("--gpu_devices", type=str, default="0", help="GPU devices to use")
 
-    # Add the arguments for the model settings
+    # Model
     model_name_group = parser.add_mutually_exclusive_group(required=True)
     model_name_group.add_argument("--pretrained_model_name_or_path", type=str, help="Name or path of the pretrained model")
     model_name_group.add_argument("--template_model_name", type=str, help="Template model name")
-    model_name_group.add_argument("--resume_from_checkpoint", type=str, default=None, help="Path to the checkpoint to resume training from")
+    model_name_group.add_argument("--resume_from_checkpoint", type=str, help="Path to the checkpoint to resume training from")
 
     parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
     parser.add_argument("--intermediate_size", type=int, default=4096,
@@ -58,7 +57,7 @@ def setup_arg_parser():
     parser.add_argument("--flash_attn", action="store_true", help="Use Flash Attention")
     parser.add_argument("--liger_kernels", action="store_true", help="Use LIGER kernels to increase throughput and reduce memory usage")
 
-    # Add the arguments for the dataset settings
+    # Dataset
     parser.add_argument("--dataset_name_or_path", type=str, default=None, required=True, help="Name of the dataset to use")
     parser.add_argument("--dataset_config", type=str, default=None, help="Configuration of the dataset to use")
     parser.add_argument("--dataset_train_split_name", type=str, default="train", help="Name of the training split")
@@ -78,14 +77,14 @@ def setup_arg_parser():
     parser.add_argument("--dataset_save_path", type=str, default="dataset", help="Path to save the prepared dataset")
     parser.add_argument("--dataset_cache_path", type=str, default=None, help="Path to save the prepared dataset cache")
 
-    # Add the arguments for the tokenization settings
+    # Tokenization
     parser.add_argument("--tokenizer_name_or_path", type=str, default=None, help="Name or path of the tokeniser")
     parser.add_argument("--additional_special_tokens", type=str, nargs="+",
                         default=None, help="Additional special tokens to add to the tokenizer")
     parser.add_argument("--chat_template", type=str, default=None, help="Chat template for chatbot training")
     parser.add_argument("--stride", type=int, default=150, help="Stride for splitting the input into multiple sequences")
 
-    # Add the arguments for the training settings
+    # Training
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--model_init_seed", type=int, default=None, help="Random seed for model initialization only")
     parser.add_argument("--dataset_shuffle_seed", type=int, default=None, help="Random seed for dataset shuffling only")
@@ -151,15 +150,15 @@ def setup_arg_parser():
     parser.add_argument("--optimizer_args", nargs="+", action=KeyValueAction, help="Arguments for the optimizer")
     parser.add_argument("--torch_compile", action="store_true", help="Enable torch.compile")
 
-    # Logging settings
+    # Logging
     parser.add_argument("--wandb", action="store_true", help="Enable logging to Weights & Biases")
 
-    # Early stopping
+    # Early Stopping
     parser.add_argument("--early_stopping", action="store_true", help="Enable early stopping")
     parser.add_argument("--early_stopping_patience", type=int, default=3, help="Number of epochs to wait before early stopping")
     parser.add_argument("--early_stopping_threshold", type=float, default=0.0, help="Minimum change in the monitored quantity to qualify as an improvement")
 
-    # Add the arguments for the Optuna study
+    # Optuna Study
     parser.add_argument("--run_hyperparameter_search", action="store_true", help="Enable hyperparameter search")
     parser.add_argument("--study_name", type=str, default=f"hyperparameter_search", help="Name of the Optuna study")
     parser.add_argument("--n_trials", type=int, default=1, help="Number of hyperparameter search trials")
