@@ -380,10 +380,6 @@ def hp_space(trial: optuna.Trial) -> dict:
         space["warmup_ratio"] = trial.suggest_uniform("warmup_ratio", args.warmup_ratio_range[0], args.warmup_ratio_range[1])
     if args.opt_warmup_steps:
         space["warmup_steps"] = trial.suggest_int("warmup_steps", args.warmup_steps_range[0], args.warmup_steps_range[1])
-    if args.opt_grokfast_ema_alpha:
-        space["grokfast_ema_alpha"] = trial.suggest_float("grokfast_ema_alpha", args.grokfast_ema_alpha_range[0], args.grokfast_ema_alpha_range[1])
-    if args.opt_grokfast_ema_lambda:
-        space["grokfast_ema_lambda"] = trial.suggest_float("grokfast_ema_lambda", args.grokfast_ema_lambda_range[0], args.grokfast_ema_lambda_range[1])
 
     # Model Configuration
     if args.opt_dtype:
@@ -707,14 +703,6 @@ elif args.resume_from_checkpoint and args.wandb:
     exit()
 else:
     training_kwargs.update({"run_name": f"run-{timestamp}"})
-
-# Add the GrokFast options if they're passed
-if args.grokfast_ema:
-    training_kwargs.update({
-        "grokfast_ema": args.grokfast_ema,
-        "grokfast_ema_alpha": args.grokfast_ema_alpha,
-        "grokfast_ema_lambda": args.grokfast_ema_lambda
-    })
 
 # Enable liger kernels
 if args.liger_kernels:
