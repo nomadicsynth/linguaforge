@@ -440,10 +440,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
             additional_special_tokens.append(f"<|spare_{i}|>")
 
     # Add the special tokens to the tokenizer
-    tokenizer.add_special_tokens(
-        {"additional_special_tokens": additional_special_tokens},
-        replace_additional_special_tokens=False,
-    )
+    tokenizer.add_special_tokens(additional_special_tokens)
 
     if len(additional_special_tokens) > 0 and is_main_process:
         print(f"Additional special tokens added to the tokenizer.")
@@ -467,7 +464,7 @@ def tokenizer_init(model_name_or_path: str) -> AutoTokenizer:
 
 
 # Initialize the model
-def model_init(trial: optuna.Trial) -> PreTrainedModel:
+def model_init(trial: optuna.Trial | None=None) -> PreTrainedModel:
     global tokenizer
     
     if trial is not None:
@@ -481,7 +478,7 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
         print_if_main_process("Can't train in float16. Switching to float32")
         args.dtype = torch.float32
 
-    model_kwargs = {"torch_dtype":args.dtype}
+    model_kwargs = {"dtype":args.dtype}
     if args.flash_attn:
         model_kwargs.update({"attn_implementation":"kernels-community/flash-attn2"})
 
@@ -503,7 +500,7 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
             use_cache=False if args.gradient_checkpointing else True,
             pad_token_id=tokenizer.pad_token_id if tokenizer is not None else None,
             sliding_window=None,
-            torch_dtype=args.dtype,
+            dtype=args.dtype,
         )
 
         if args.flash_attn:
@@ -514,7 +511,7 @@ def model_init(trial: optuna.Trial) -> PreTrainedModel:
             space = trial.params
 
             if "dtype" in space:
-                model_config["torch_dtype"] = space["dtype"]
+                model_config["dtype"] = space["dtype"]
             if "hidden_size" in space:
                 model_config["hidden_size"] = space["hidden_size"]
             if "intermediate_size" in space:
@@ -664,7 +661,7 @@ elif args.evals_per_epoch:
             "eval_steps": (1 / args.evals_per_epoch) / args.num_train_epochs
         })
 else:
-    training_kwargs.update({"eval_strategy": "epoch"})
+    training_kwargs.update({"eval_strategy": "no"})
 
 print_if_main_process(f"eval_strategy = {training_kwargs["eval_strategy"]}")
 if training_kwargs["eval_strategy"] == "steps":
@@ -724,17 +721,16 @@ else:
     if args.pretrained_model_name_or_path:
         # Load the tokenizer from the pretrained model
         tokenizer = tokenizer_init(args.pretrained_model_name_or_path)
-        sfttrainer_args.update({"tokenizer": tokenizer})
+        sfttrainer_args.update({"processing_class": tokenizer})
     elif args.template_model_name:
         # Load the tokenizer from the template model
         tokenizer = tokenizer_init(args.template_model_name)
-        sfttrainer_args.update({"tokenizer": tokenizer})
+        sfttrainer_args.update({"processing_class": tokenizer})
 
 if args.tokenizer_name_or_path:
-    sfttrainer_args["tokenizer"] = tokenizer_init(args.tokenizer_name_or_path)
+    sfttrainer_args["processing_class"] = tokenizer_init(args.tokenizer_name_or_path)
 
 training_args = SFTConfig(
-    logging_dir=f"{results_dir}/logs/",
     num_train_epochs=args.num_train_epochs,
     max_steps=args.num_train_steps,
     auto_find_batch_size=args.auto_find_batch_size,
@@ -743,8 +739,7 @@ training_args = SFTConfig(
     gradient_accumulation_steps=args.gradient_accumulation_steps,
     gradient_checkpointing=args.gradient_checkpointing,
     max_grad_norm=args.max_grad_norm,
-    warmup_ratio=args.warmup_ratio,
-    warmup_steps=args.warmup_steps,
+    warmup_steps=args.warmup_ratio if args.warmup_ratio > 0 else args.warmup_steps,
     save_total_limit=args.save_total_limit,
     learning_rate=args.learning_rate,
     lr_scheduler_type=args.lr_scheduler_type,
@@ -772,7 +767,7 @@ training_args = SFTConfig(
     batch_eval_metrics=True,
     include_num_input_tokens_seen=True,
     eval_on_start=args.eval_on_start,
-    include_inputs_for_metrics=True,
+    include_for_metrics=["inputs"],
     **training_kwargs
 )
 
@@ -789,7 +784,7 @@ class SFTTrainerWithModelInit(SFTTrainer):
 trainer = SFTTrainerWithModelInit(
     args=training_args,
     train_dataset=dataset["train"],
-    eval_dataset=dataset["validation"],
+    eval_dataset=dataset["validation"] if "validation" in dataset else None,
     compute_metrics=compute_metrics,
     **sfttrainer_args
 )
@@ -843,7 +838,10 @@ def run_training():
             print("Training progress saved.")
             print("Training interrupted by user.")
             # Replace output dir in sys.argv with results_dir
-            sys.argv[sys.argv.index("--output_dir") + 1] = results_dir
+            if "--output_dir" in sys.argv:
+                sys.argv[sys.argv.index("--output_dir") + 1] = results_dir
+            else:
+                sys.argv.extend(["--output_dir", results_dir])
             print(f"Resume training by running the following command:\npython {" ".join(sys.argv[1:])} --resume_from_checkpoint")
         else:
             time.sleep(5)
