@@ -486,6 +486,7 @@ def model_init(trial: optuna.Trial | None=None) -> PreTrainedModel:
     if args.pretrained_model_name_or_path:
         model = AutoModelForCausalLM.from_pretrained(
             args.pretrained_model_name_or_path,
+            use_kernels=True,
             **model_kwargs,
         )
     else:
@@ -525,7 +526,7 @@ def model_init(trial: optuna.Trial | None=None) -> PreTrainedModel:
             if "attention_kv_config" in space:
                 model_config.update(parse_attention_kv_config(space["attention_kv_config"]))
 
-        model_config = AutoConfig.from_pretrained(args.template_model_name, **model_config)
+        model_config = AutoConfig.from_pretrained(args.template_model_name, use_kernels=True, **model_config)
         model = AutoModelForCausalLM.from_config(model_config)
 
         # Move the model to the device
@@ -684,14 +685,10 @@ elif args.resume_from_checkpoint and args.wandb:
 else:
     training_kwargs.update({"run_name": f"run-{timestamp}"})
 
-# Enable liger kernels
-if args.liger_kernels:
-    training_kwargs.update({"use_liger": True})
-
 # Enable `torch.compile()` once support is better
 if args.torch_compile:
-    print("torch.compile() is not yet supported. Skipping.")
-    # training_kwargs.update({"torch_compile": True})
+    # print("torch.compile() is not yet supported. Skipping.")
+    training_kwargs.update({"torch_compile": True})
 
 sfttrainer_args = {}
 tokenizer = None
