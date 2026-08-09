@@ -585,8 +585,8 @@ split_priority=[]
 if args.dataset_size_test is not None:
     split_sizes["test"] = args.dataset_size_test
     split_priority.append("test")
-if args.dataset_size_val is not None:
-    split_sizes["validation"] = args.dataset_size_val
+if args.dataset_size_eval is not None:
+    split_sizes["validation"] = args.dataset_size_eval
     split_priority.append("validation")
 if args.dataset_size_train is not None:
     split_sizes["train"] = args.dataset_size_train

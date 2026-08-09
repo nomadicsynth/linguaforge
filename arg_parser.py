@@ -64,9 +64,8 @@ def setup_arg_parser():
     parser.add_argument("--dataset_test_split_name", type=str, default=None, help="Name of the test split")
     parser.add_argument("--reformat_dataset", type=str, default=None, help="Reformat the dataset using the specified script. The script must contain a 'format_example' function that takes a batch of examples and returns a batch of formatted examples. Example: ```\npython def format_example(batch):\n    if 'text' in batch:\n        batch['text'] = [text.lower() for text in batch['text']]\n    return batch\n```")
     parser.add_argument("--dataset_size_train", type=int, default=0, help="Number of examples to use for the training set. Default is to use whatever is left after the splits.")
-    parser.add_argument("--dataset_size_val", type=int, default=None, help="Number of examples to use for the validation set used during training. Keep it small so in-training evals don't take too long")
+    parser.add_argument("--dataset_size_eval", type=int, default=None, help="Number of examples to use for the validation set used during training. Keep it small so in-training evals don't take too long")
     parser.add_argument("--dataset_size_test", type=int, default=None, help="Number of examples to use for the test set used after training. Should be a decent size.")
-    parser.add_argument("--dataset_split", type=float, default=0.9, help="Percentage of examples to use for training. Must be less than 1.0")
     parser.add_argument("--shuffle", action="store_true", help="Shuffle the dataset")
     parser.add_argument("--keep_dataset_in_memory", action="store_true", help="Keep the dataset in memory")
     parser.add_argument("--dataset_streaming", action="store_true", help="Enable dataset streaming")
@@ -92,10 +91,7 @@ def setup_arg_parser():
                         help="Data type to use for the model",
                         choices=["float16", "bfloat16", "float32"])
     parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate for the model")
-    parser.add_argument(
-        "--lr_scheduler_type",
-        type=str,
-        default="reduce_lr_on_plateau",
+    parser.add_argument("--lr_scheduler_type", type=str, default="linear",
         choices=[
             "linear", "cosine", "cosine_with_restarts", "polynomial", "constant",
             "constant_with_warmup", "inverse_sqrt", "reduce_lr_on_plateau",
@@ -108,6 +104,7 @@ def setup_arg_parser():
     parser.add_argument("--num_train_steps", type=int, default=-1, help="Number of training steps. Supercedes num_train_epochs")
     parser.add_argument("--logging_steps", type=int_or_float, default=None, help="Number of steps between logging")
     parser.add_argument("--include_num_input_tokens_seen", action="store_true", help="Include the number of input tokens seen in the log output")
+    parser.add_argument("--evals_per_epoch", type=int, default=0, help="Number of evaluations per epoch")
     parser.add_argument("--eval_steps", type=int_or_float, default=None, help="Number of steps between evaluations")
     parser.add_argument("--eval_on_start", action="store_true", help="Evaluate the model at the start of training")
     parser.add_argument("--save_steps", type=int_or_float, default=None, help="Number of steps between saving the model")
@@ -115,18 +112,12 @@ def setup_arg_parser():
     parser.add_argument("--load_best_model_at_end", action="store_true", help="Load the best model at the end of training")
     parser.add_argument("--metric_for_best_model", type=str, default=None, help="Metric to use for the best model")
     parser.add_argument("--greater_is_better", action="store_true", help="The metric for the best model is greater when true")
-    parser.add_argument("--evals_per_epoch", type=int, default=1, help="Number of evaluations per epoch")
     parser.add_argument("--auto_find_batch_size", action="store_true", help="Automatically find the batch size")
-    parser.add_argument("--per_device_train_batch_size", type=int, default=4,
-                        help="Batch size per GPU/TPU core/CPU for training")
-    parser.add_argument("--per_device_eval_batch_size", type=int, default=4,
-                        help="Batch size per GPU/TPU core/CPU for evaluation")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
-                        help="Number of steps to accumulate gradients for")
-    parser.add_argument("--eval_accumulation_steps", type=int, default=None,
-                        help="Number of steps to accumulate evaluation results for before moving to CPU. Saves VRAM during eval.")
-    parser.add_argument("--warmup_ratio", type=float, default=0.0,
-                        help="Ratio of the number of warmup steps to the total number of training steps")
+    parser.add_argument("--per_device_train_batch_size", type=int, default=1, help="Batch size per GPU/TPU core/CPU for training")
+    parser.add_argument("--per_device_eval_batch_size", type=int, default=1, help="Batch size per GPU/TPU core/CPU for evaluation")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Number of steps to accumulate gradients for")
+    parser.add_argument("--eval_accumulation_steps", type=int, default=None, help="Number of steps to accumulate evaluation results for before moving to CPU. Saves VRAM during eval.")
+    parser.add_argument("--warmup_ratio", type=float, default=0.0, help="Ratio of the number of warmup steps to the total number of training steps")
     parser.add_argument("--warmup_steps", type=int, default=0, help="Number of warmup steps")
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay for the AdamW optimizer")
     parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Maximum gradient norm")
