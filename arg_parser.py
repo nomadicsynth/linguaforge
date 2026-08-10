@@ -47,15 +47,14 @@ def setup_arg_parser():
     model_name_group.add_argument("--template_model_name", type=str, help="Template model name")
     model_name_group.add_argument("--resume_from_checkpoint", type=str, help="Path to the checkpoint to resume training from")
 
-    parser.add_argument("--hidden_size", type=int, default=2048, help="Size of the hidden states in the transformer layers")
-    parser.add_argument("--intermediate_size", type=int, default=4096,
-                        help="Size of the feed-forward network in the transformer layers")
-    parser.add_argument("--num_attention_heads", type=int, default=32, help="Number of attention heads")
-    parser.add_argument("--num_key_value_heads", type=int, default=8, help="Number of key-value heads")
-    parser.add_argument("--num_hidden_layers", type=int, default=1, help="Number of transformer layers")
-    parser.add_argument("--context_length", type=int, default=1024, help="Maximum sequence length")
+    parser.add_argument("--hidden_size", type=int, default=None, help="Size of the hidden states in the transformer layers")
+    parser.add_argument("--intermediate_size", type=int, default=None, help="Size of the feed-forward network in the transformer layers")
+    parser.add_argument("--num_attention_heads", type=int, default=None, help="Number of attention heads")
+    parser.add_argument("--num_key_value_heads", type=int, default=None, help="Number of key-value heads")
+    parser.add_argument("--num_hidden_layers", type=int, default=None, help="Number of transformer layers")
+    parser.add_argument("--context_length", type=int, default=None, help="Maximum sequence length")
+    parser.add_argument("--tie_word_embeddings", action="store_true", help="Tie the input and output word embeddings")
     parser.add_argument("--flash_attn", action="store_true", help="Use Flash Attention")
-    parser.add_argument("--liger_kernels", action="store_true", help="Use LIGER kernels to increase throughput and reduce memory usage")
 
     # Dataset
     parser.add_argument("--dataset_name_or_path", type=str, default=None, required=True, help="Name of the dataset to use")

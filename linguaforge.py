@@ -280,8 +280,9 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
 
         # Mask out the padding tokens
         if attention_mask is None:
-            predictions = predictions * attention_mask
-            metric_labels = metric_labels * attention_mask
+            mask = attention_mask.bool()
+            predictions = predictions[mask]
+            metric_labels = metric_labels[mask]
 
         # Flatten the input and move to CPU
         metric_labels = metric_labels.flatten().cpu()
@@ -479,6 +480,7 @@ def model_init(trial: optuna.Trial | None=None) -> PreTrainedModel:
         args.dtype = torch.float32
 
     model_kwargs = {"dtype":args.dtype}
+
     if args.flash_attn:
         model_kwargs.update({"attn_implementation":"kernels-community/flash-attn2"})
 
@@ -489,25 +491,32 @@ def model_init(trial: optuna.Trial | None=None) -> PreTrainedModel:
             use_kernels=True,
             **model_kwargs,
         )
-    else:
-        # Set the initial model configuration
-        model_config = dict(
-            hidden_size=args.hidden_size,
-            intermediate_size=args.intermediate_size,
-            num_hidden_layers=args.num_hidden_layers,
-            num_attention_heads=args.num_attention_heads,
-            num_key_value_heads=args.num_key_value_heads,
-            max_position_embeddings=args.context_length,
-            use_cache=False if args.gradient_checkpointing else True,
-            pad_token_id=tokenizer.pad_token_id if tokenizer is not None else None,
-            sliding_window=None,
-            dtype=args.dtype,
-        )
+    elif args.template_model_name:
+        # TODO: Experiment with initialising the input embeddings from another model. Inspired by "Let Me Grok for You: Accelerating Grokking via Embedding Transfer from a Weaker Model", Xu et al (2025). arXiv:2504.13292v1 [cs.LG] 17 Apr 2025
+        model_config = {**model_kwargs}
 
-        if args.flash_attn:
-            model_config.update({"attn_implementation":"kernels-community/flash-attn2"})
+        if args.hidden_size is not None:
+            model_config["hidden_size"] = args.hidden_size
+        if args.intermediate_size is not None:
+            model_config["intermediate_size"] = args.intermediate_size
+        if args.num_hidden_layers is not None:
+            model_config["num_hidden_layers"] = args.num_hidden_layers
+        if args.num_attention_heads is not None:
+            model_config["num_attention_heads"] = args.num_attention_heads
+        if args.num_key_value_heads is not None:
+            model_config["num_key_value_heads"] = args.num_key_value_heads
+        if args.context_length is not None:
+            model_config["max_position_embeddings"] = args.context_length
+        if args.tie_word_embeddings is not None:
+            model_config["tie_word_embeddings"] = args.tie_word_embeddings
 
-        # If this is a trial, set the config from the trial
+        model_config.update({
+            "use_cache": False if args.gradient_checkpointing else True,
+            "pad_token_id": tokenizer.pad_token_id if tokenizer is not None else None,
+            "sliding_window": None,
+            "dtype": args.dtype,
+        })
+
         if trial is not None:
             space = trial.params
 
@@ -529,8 +538,8 @@ def model_init(trial: optuna.Trial | None=None) -> PreTrainedModel:
         model_config = AutoConfig.from_pretrained(args.template_model_name, use_kernels=True, **model_config)
         model = AutoModelForCausalLM.from_config(model_config)
 
-        # Move the model to the device
-        model = model.to(device)
+    # Move the model to the device
+    model = model.to(device)
 
     # Resize the token embeddings to match the tokenizer
     model.resize_token_embeddings(len(tokenizer))
@@ -541,6 +550,9 @@ def model_init(trial: optuna.Trial | None=None) -> PreTrainedModel:
     model_size = model_size / 1e9 if model_size > 1e9 else model_size / 1e6
 
     print_if_main_process(f"Model size: {model_size:.2f}{model_size_suffix}")
+
+    # Print the model configuration
+    print_if_main_process(f"Model configuration: {model.config.to_dict()}")
 
     return model
 
@@ -765,7 +777,7 @@ trainer = SFTTrainerWithModelInit(
     args=training_args,
     train_dataset=dataset["train"],
     eval_dataset=dataset["validation"] if "validation" in dataset else None,
-    compute_metrics=compute_metrics,
+    # compute_metrics=compute_metrics,
     **sfttrainer_args
 )
 
@@ -862,25 +874,48 @@ def run_training():
         eval_results = trainer.evaluate(tokenized_test_dataset)
 
     # Display the results
+    log_history = trainer.state.log_history
+
+    # Find the last evaluation log in the log history
+    last_eval_log = None
+    for entry in reversed(log_history):
+        if "eval_loss" in entry:
+            last_eval_log = entry
+            break
+
+    # Find the last training log in the log history
+    last_train_log = None
+    for entry in reversed(log_history):
+        if "loss" in entry:
+            last_train_log = entry
+            break
+    
     print_if_main_process()
     print_if_main_process("--- Final results ---")
     print_if_main_process("Training results:")
-    print_if_main_process(f"Training runtime: {trainer.state.log_history[-1]['train_runtime']:.2f} seconds")
-    print_if_main_process(f"Training samples per second: {trainer.state.log_history[-1]['train_samples_per_second']:.2f}")
-    print_if_main_process(f"Training steps per second: {trainer.state.log_history[-1]['train_steps_per_second']:.2f}")
-    print_if_main_process(f"Total FLOPs: {trainer.state.log_history[-1]['total_flos']:.2e}")
-    print_if_main_process(f"Train Loss: {trainer.state.log_history[-4]['loss']:.4f}")
-    print_if_main_process(f"Train PPL: {math.exp(trainer.state.log_history[-4]['loss']):.4f}")
-    print_if_main_process(f"Epochs: {trainer.state.log_history[-1]['epoch']:.2f}")
-    print_if_main_process(f"Num input tokens seen: {trainer.state.log_history[-1]['num_input_tokens_seen']}")
-    print_if_main_process(f"Num steps: {trainer.state.log_history[-1]['step']}")
-    print_if_main_process()
-    print_if_main_process("Validation results:")
-    print_if_main_process(f"Validation Loss: {trainer.state.log_history[-2]['eval_loss']:.4f}")
-    print_if_main_process(f"Validation PPL: {math.exp(trainer.state.log_history[-2]['eval_loss']):.4f}")
-    print_if_main_process(f"Validation Accuracy: {trainer.state.log_history[-2]['eval_accuracy']:.4f}")
-    print_if_main_process(f"Validation F1: {trainer.state.log_history[-2]['eval_f1']:.4f}")
-    print_if_main_process(f"Validation Mean Token Accuracy: {trainer.state.log_history[-2]['eval_mean_token_accuracy']:.4f}")
+    if last_train_log:
+        print_if_main_process(f"Train Loss: {last_train_log['loss']:.4f}")
+        print_if_main_process(f"Train PPL: {math.exp(last_train_log['loss']):.4f}")
+    else:
+        print_if_main_process(f"Train Loss: {log_history[-1]['train_loss']:.4f}")
+        print_if_main_process(f"Train PPL: {math.exp(log_history[-1]['train_loss']):.4f}")
+    print_if_main_process(f"Training runtime: {log_history[-1]['train_runtime']:.2f} seconds")
+    print_if_main_process(f"Training samples per second: {log_history[-1]['train_samples_per_second']:.2f}")
+    print_if_main_process(f"Training steps per second: {log_history[-1]['train_steps_per_second']:.2f}")
+    print_if_main_process(f"Total FLOPs: {log_history[-1]['total_flos']:.2e}")
+    print_if_main_process(f"Epochs: {log_history[-1]['epoch']:.2f}")
+    print_if_main_process(f"Num input tokens seen: {log_history[-1]['num_input_tokens_seen']}")
+    print_if_main_process(f"Num steps: {log_history[-1]['step']}")
+    if last_eval_log:
+        print_if_main_process()
+        print_if_main_process("Validation results:")
+        print_if_main_process(f"Validation Loss: {last_eval_log['eval_loss']:.4f}")
+        print_if_main_process(f"Validation PPL: {math.exp(last_eval_log['eval_loss']):.4f}")
+        if "eval_accuracy" in last_eval_log:
+            print_if_main_process(f"Validation Accuracy: {last_eval_log['eval_accuracy']:.4f}")
+        if "eval_f1" in last_eval_log:
+            print_if_main_process(f"Validation F1: {last_eval_log['eval_f1']:.4f}")
+        print_if_main_process(f"Validation Mean Token Accuracy: {last_eval_log['eval_mean_token_accuracy']:.4f}")
     if eval_results:
         print_if_main_process(f"Evaluation Loss: {eval_results['eval_loss']:.4f}")
         print_if_main_process(f"Evaluation PPL: {math.exp(eval_results['eval_loss']):.4f}")
