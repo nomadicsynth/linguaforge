@@ -258,9 +258,6 @@ def reformat_dataset(dataset, reformat_dataset):
 
 # Load the evaluation metrics
 metric_accuracy = evaluate.load("accuracy")
-metric_f1 = evaluate.load("f1")
-# metric_rouge = evaluate.load("rouge")
-# metric_bleu = evaluate.load("bleu")
 
 
 # Compute the evaluation metrics
@@ -290,7 +287,6 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
         attention_mask = attention_mask.flatten().cpu()
 
         metric_accuracy.add_batch(predictions=predictions, references=metric_labels)
-        metric_f1.add_batch(predictions=predictions, references=metric_labels)
 
         del logits, metric_labels, predictions, attention_mask
         torch.cuda.empty_cache()
@@ -298,7 +294,6 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
     if compute_result:
         return {
             "accuracy": metric_accuracy.compute()["accuracy"],
-            "f1": metric_f1.compute(average="micro")["f1"],
         }
     else:
         return {}
@@ -924,8 +919,6 @@ def run_training():
         print_if_main_process(f"Validation PPL: {math.exp(last_eval_log['eval_loss']):.4f}")
         if "eval_accuracy" in last_eval_log:
             print_if_main_process(f"Validation Accuracy: {last_eval_log['eval_accuracy']:.4f}")
-        if "eval_f1" in last_eval_log:
-            print_if_main_process(f"Validation F1: {last_eval_log['eval_f1']:.4f}")
         if "eval_mean_token_accuracy" in last_eval_log:
             print_if_main_process(f"Validation Mean Token Accuracy: {last_eval_log['eval_mean_token_accuracy']:.4f}")
     if eval_results:
