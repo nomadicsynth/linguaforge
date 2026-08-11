@@ -66,6 +66,7 @@ def setup_arg_parser():
     parser.add_argument("--dataset_size_eval", type=int, default=None, help="Number of examples to use for the validation set used during training. Keep it small so in-training evals don't take too long")
     parser.add_argument("--dataset_size_test", type=int, default=None, help="Number of examples to use for the test set used after training. Should be a decent size.")
     parser.add_argument("--shuffle", action="store_true", help="Shuffle the dataset")
+    parser.add_argument("--dataset_shuffle_seed", type=int, default=None, help="Random seed for dataset shuffling only")
     parser.add_argument("--keep_dataset_in_memory", action="store_true", help="Keep the dataset in memory")
     parser.add_argument("--dataset_streaming", action="store_true", help="Enable dataset streaming")
     parser.add_argument("--dataset_batch_size", type=int, default=1000, help="Batch size for processing the dataset")
@@ -85,7 +86,6 @@ def setup_arg_parser():
     # Training
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     parser.add_argument("--model_init_seed", type=int, default=None, help="Random seed for model initialization only")
-    parser.add_argument("--dataset_shuffle_seed", type=int, default=None, help="Random seed for dataset shuffling only")
     parser.add_argument("--dtype", type=str, default="bfloat16",
                         help="Data type to use for the model",
                         choices=["float16", "bfloat16", "float32"])
