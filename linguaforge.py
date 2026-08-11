@@ -644,16 +644,6 @@ if is_main_process:
             indent=2,
         )
 
-if args.wandb:
-    # set the wandb project where this run will be logged
-    os.environ["WANDB_PROJECT"] = args.project_name
-
-    # save your trained model checkpoint to wandb
-    os.environ["WANDB_LOG_MODEL"] = "false"
-
-    # turn off watch to log faster
-    os.environ["WANDB_WATCH"] = "false"
-
 # TrainingArguments setup
 training_kwargs = {}
 
@@ -697,7 +687,24 @@ elif args.resume_from_checkpoint and args.wandb:
 else:
     training_kwargs.update({"run_name": f"run-{timestamp}"})
 
-# Enable `torch.compile()` once support is better
+if args.wandb:
+    # set the wandb project where this run will be logged
+    os.environ["WANDB_PROJECT"] = args.project_name
+
+    # save your trained model checkpoint to wandb
+    os.environ["WANDB_LOG_MODEL"] = "false"
+
+    # turn off watch to log faster
+    os.environ["WANDB_WATCH"] = "false"
+
+    # init wandb run with code-saving enabled. wandb ARIA auto-research uses the code.
+    import wandb
+    wandb.init(
+        project=args.project_name,
+        name=training_kwargs["run_name"],
+        settings=wandb.Settings(save_code=True, code_dir="."),
+    )
+
 if args.torch_compile:
     training_kwargs.update(
         {
