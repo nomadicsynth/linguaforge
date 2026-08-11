@@ -140,6 +140,9 @@ def setup_arg_parser():
     )
     parser.add_argument("--optimizer_args", nargs="+", action=KeyValueAction, help="Arguments for the optimizer")
     parser.add_argument("--torch_compile", action="store_true", help="Enable torch.compile")
+    parser.add_argument("--torch_compile_backend", type=str, default="inductor", choices=["inductor", "cudagraphs", "ipex", "hpu_backend", "neuron"], help="Backend for torch.compile")
+    parser.add_argument("--torch_compile_mode", type=str, default="default", choices=["default", "reduce-overhead", "max-autotune", "max-autotune-no-cudagraphs"], help="Mode for torch.compile")
+    parser.add_argument("--liger_kernel", action="store_true", help="Use Liger kernels - Efficient Triton Kernels for LLM Training")
 
     # Logging
     parser.add_argument("--wandb", action="store_true", help="Enable logging to Weights & Biases")

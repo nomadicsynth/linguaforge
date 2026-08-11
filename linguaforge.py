@@ -699,8 +699,12 @@ else:
 
 # Enable `torch.compile()` once support is better
 if args.torch_compile:
-    # print("torch.compile() is not yet supported. Skipping.")
-    training_kwargs.update({"torch_compile": True})
+    training_kwargs.update(
+        {
+            "torch_compile": True,
+            "torch_compile_backend": args.torch_compile_backend,
+            "torch_compile_mode": args.torch_compile_mode,
+        })
 
 sfttrainer_args = {}
 tokenizer = None
@@ -760,10 +764,10 @@ training_args = SFTConfig(
     include_num_input_tokens_seen=True,
     eval_on_start=args.eval_on_start,
     include_for_metrics=["inputs"],
+    use_liger_kernel=args.liger_kernel,
     **training_kwargs
 )
 
-# Add this before creating the trainer
 class SFTTrainerWithModelInit(SFTTrainer):
     def __init__(self, model=None, model_init=None, **kwargs):
         if model_init is not None and model is None:
@@ -777,7 +781,7 @@ trainer = SFTTrainerWithModelInit(
     args=training_args,
     train_dataset=dataset["train"],
     eval_dataset=dataset["validation"] if "validation" in dataset else None,
-    # compute_metrics=compute_metrics,
+    compute_metrics=compute_metrics if args.liger_kernel else None,
     **sfttrainer_args
 )
 
@@ -915,7 +919,8 @@ def run_training():
             print_if_main_process(f"Validation Accuracy: {last_eval_log['eval_accuracy']:.4f}")
         if "eval_f1" in last_eval_log:
             print_if_main_process(f"Validation F1: {last_eval_log['eval_f1']:.4f}")
-        print_if_main_process(f"Validation Mean Token Accuracy: {last_eval_log['eval_mean_token_accuracy']:.4f}")
+        if "eval_mean_token_accuracy" in last_eval_log:
+            print_if_main_process(f"Validation Mean Token Accuracy: {last_eval_log['eval_mean_token_accuracy']:.4f}")
     if eval_results:
         print_if_main_process(f"Evaluation Loss: {eval_results['eval_loss']:.4f}")
         print_if_main_process(f"Evaluation PPL: {math.exp(eval_results['eval_loss']):.4f}")
