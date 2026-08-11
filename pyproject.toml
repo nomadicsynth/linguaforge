@@ -12,6 +12,7 @@ dependencies = [
     "evaluate>=0.4.6",
     "grokadamw>=0.1.2",
     "kernels<0.16.0",
+    "liger-kernel>=0.8.1",
     "mpi4py>=4.1.2",
     "optuna>=4.9.0",
     "plotly>=6.9.0",
