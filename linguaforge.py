@@ -161,7 +161,7 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
 # Hyperparameter search objective function
 def compute_objective(metrics: dict[str, float]) -> float:
     """
-    The objective to maximize/minimize when doing an hyperparameter search. It is the evaluation loss if no
+    The objective to maximize/minimize when doing a hyperparameter search. It is the evaluation loss if no
     metric is provided in args.metric_for_best_model. Otherwise, it is the metric provided in args.metric_for_best_model.
 
     Args:
