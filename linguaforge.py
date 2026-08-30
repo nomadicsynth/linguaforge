@@ -135,7 +135,7 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
         predictions = torch.argmax(logits, dim=-1)
 
         # Mask out the padding tokens
-        if attention_mask is None:
+        if attention_mask is not None:
             mask = attention_mask.bool()
             predictions = predictions[mask]
             metric_labels = metric_labels[mask]
