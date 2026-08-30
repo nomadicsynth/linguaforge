@@ -1,4 +1,7 @@
 import argparse
+import sys
+
+from utils import print_if_main_process
 
 
 def int_or_float(value):
@@ -30,6 +33,10 @@ class KeyValueAction(argparse.Action):
 
 def setup_arg_parser():
     parser = argparse.ArgumentParser(description="Train a model using the SFTTrainer", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument("--config_file", type=str, default=None, help="Path to a YAML configuration file. Loaded before other arguments, so command line arguments will override the config file.")
+    parser.add_argument("--save_config_file", type=str, default=None, help="Path to save the current configuration to a YAML file. Saved after all other arguments are parsed.")
+    parser.add_argument("--print_args_and_exit", action="store_true", help="Print the parsed arguments and exit")
 
     parser.add_argument("--project_name", type=str, required=True, help="Name of the project")
     parser.add_argument(
@@ -209,8 +216,72 @@ def setup_arg_parser():
 
 def parse_args(args=None, namespace=None):
     parser = setup_arg_parser()
-    return parser.parse_args(args, namespace)
 
+    if args is None:
+        args = sys.argv.copy()
+
+    # If a config file is specified, load it
+    if "--config_file" in args:
+        # extract the config file path from the command line arguments
+        config_file_index = args.index("--config_file") + 1
+        config_file_path = args[config_file_index]
+        args.pop(config_file_index)  # Remove the config file path from the args
+        args.pop(config_file_index - 1)  # Remove the --config_file argument
+
+        print_if_main_process(f"Loading configuration from {config_file_path}")
+        yaml_args = load_args_from_yaml(config_file_path)
+
+        new_args = []
+        for key, value in yaml_args.items():
+            if isinstance(value, bool):
+                if value:
+                    new_args.append(f"--{key}")
+            elif isinstance(value, list):
+                for item in value:
+                    new_args.append(f"--{key}={item}")
+            else:
+                new_args.append(f"--{key}={value}")
+
+        new_args.extend(args[1:])  # Append the rest of the command line arguments after the config file
+        args = new_args
+
+    parsed_args = parser.parse_args(args, namespace)
+
+    if parsed_args.save_config_file is not None:
+        save_args_to_yaml(parsed_args, parsed_args.save_config_file)
+        print_if_main_process(f"Saved configuration to {parsed_args.save_config_file}")
+        sys.exit(0)
+
+    if parsed_args.print_args_and_exit:
+        print_if_main_process(parsed_args)
+        sys.exit(0)
+
+    return parsed_args
+
+
+config_yaml_banned_keys = ["config_file", "save_config_file"]
+def clean_args_for_yaml(args):
+    for key in config_yaml_banned_keys:
+        if hasattr(args, key):
+            delattr(args, key)
+    return args
+
+def save_args_to_yaml(args, file_path):
+    # Copy args to a new namespace to avoid modifying the original
+    import argparse
+    args = argparse.Namespace(**vars(args))
+    args = clean_args_for_yaml(args)
+    import yaml
+    with open(file_path, "w") as f:
+        yaml.dump(vars(args), f)
+
+
+def load_args_from_yaml(file_path):
+    import yaml
+    with open(file_path, "r") as f:
+        yaml_args = yaml.safe_load(f)
+
+    return clean_args_for_yaml(yaml_args)
 
 # You can test the parser directly if this file is run as a script
 if __name__ == "__main__":
