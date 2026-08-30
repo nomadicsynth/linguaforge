@@ -13,7 +13,7 @@ def int_or_float(value):
 
 # Custom action to parse key-value pairs
 class KeyValueAction(argparse.Action):
-    def __call__(self, parser, namespace, values, option_string=None):
+    def __call__(self, parser: argparse.ArgumentParser, namespace: argparse.Namespace, values: list, option_string: str | None):
         setattr(namespace, self.dest, dict())
         for item in values:
             key, value = item.split("=")
@@ -29,7 +29,7 @@ class KeyValueAction(argparse.Action):
 
 
 def setup_arg_parser():
-    parser = argparse.ArgumentParser(description="Train a model using the SFTTrainer")
+    parser = argparse.ArgumentParser(description="Train a model using the SFTTrainer", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument("--project_name", type=str, required=True, help="Name of the project")
     parser.add_argument(
