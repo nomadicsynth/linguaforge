@@ -25,7 +25,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_path)
 streamer = TextStreamer(tokenizer)
 
 # Load the model
-model = AutoModelForCausalLM.from_pretrained(model_path, torch_dtype=torch.bfloat16)
+model = AutoModelForCausalLM.from_pretrained(model_path, dtype=torch.bfloat16)
 # Switch model to inference mode
 model.eval()
 # Move model to device
