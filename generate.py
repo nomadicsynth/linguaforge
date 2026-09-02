@@ -7,7 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--prompt", type=str, required=True, help="The prompt to generate text from")
 parser.add_argument("--apply_chat_template", action="store_true", help="Apply chat template to input text")
 parser.add_argument("--model_path", type=str, required=True, help="The path to the model checkpoint")
-parser.add_argument("--max_length", type=int, default=50, help="The maximum length of the generated text")
+parser.add_argument("--max_length", type=int, default=None, help="The maximum length of the generated text")
 parser.add_argument("--temperature", type=float, default=1.0, help="The temperature for sampling")
 parser.add_argument("--device", type=str, default="cpu", help="The device to run the model on")
 args = parser.parse_args()
@@ -33,6 +33,8 @@ model = model.to(device)
 
 input_text = args.prompt.strip()
 
+max_length = args.max_length if args.max_length is not None else model.config.max_position_embeddings
+
 # If the tokeniser has a chat template, apply it to the input text
 if args.apply_chat_template:
     if not hasattr(tokenizer, "chat_template") or tokenizer.chat_template is None:
@@ -44,7 +46,7 @@ if args.apply_chat_template:
 # Generate text
 input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
 try:
-    _ = model.generate(input_ids, streamer=streamer, do_sample=True, max_length=args.max_length, temperature=args.temperature)
+    _ = model.generate(input_ids, streamer=streamer, do_sample=True, max_length=max_length, temperature=args.temperature)
 except KeyboardInterrupt:
     print("\n\nGeneration interrupted by user")
     exit(0)
