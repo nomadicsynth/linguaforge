@@ -31,7 +31,7 @@ model.eval()
 # Move model to device
 model = model.to(device)
 
-input_text = args.prompt
+input_text = args.prompt.strip()
 
 # If the tokeniser has a chat template, apply it to the input text
 if hasattr(tokenizer, "chat_template"):
