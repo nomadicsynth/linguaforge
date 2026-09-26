@@ -45,7 +45,7 @@ from typing import Dict, List
 
 import evaluate
 import optuna
-from datasets import load_dataset, load_from_disk
+from datasets import DatasetDict, IterableDatasetDict, load_dataset, load_from_disk
 from dataset_prep import prepare_dataset
 from transformers import (AutoConfig, AutoModelForCausalLM, AutoTokenizer,
                           EarlyStoppingCallback, PreTrainedModel)
@@ -425,9 +425,7 @@ if is_main_process:
         f.write(" ".join(sys.argv[1:]))
 
 # Load the dataset
-print_if_main_process(
-    f"Loading the dataset from {args.dataset_name_or_path} ({args.dataset_config})..."
-)
+print_if_main_process(f"Loading the dataset from {args.dataset_name_or_path} ({args.dataset_config})...")
 dataset = None
 try:
     dataset = load_from_disk(args.dataset_name_or_path, keep_in_memory=args.keep_dataset_in_memory)
@@ -440,7 +438,7 @@ if dataset is None:
     )
 
 # Prepare the dataset
-if "val" in dataset:
+if (isinstance(dataset, DatasetDict) or isinstance(dataset, IterableDatasetDict)) and "val" in dataset:
     dataset["validation"] = dataset["val"]
     del dataset["val"]
 
