@@ -130,7 +130,7 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
         # Get the logits, attention mask, and labels
         logits = eval_pred.predictions.detach()
         metric_labels = eval_pred.label_ids.detach()
-        attention_mask = eval_pred.inputs["attention_mask"].detach() or None
+        attention_mask = eval_pred.inputs["attention_mask"].detach() if "attention_mask" in eval_pred.inputs else None
 
         # Shift the labels and attention mask to the left
         metric_labels = metric_labels[..., 1:]
