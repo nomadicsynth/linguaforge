@@ -17,7 +17,7 @@ def load_processing_script(script_path):
 
 def prepare_dataset(
     dataset: Dataset | DatasetDict | IterableDataset | IterableDatasetDict,
-    reformat_script: Optional[str] = None,
+    transform_script: Optional[str] = None,
     split_sizes: Optional[Dict[str, Union[int, float]]] = None,
     split_priority: Optional[List[str]] = None,
     shuffle: bool = False,
@@ -42,12 +42,12 @@ def prepare_dataset(
         A DatasetDict or IterableDatasetDict containing the prepared dataset.
     """
     # Reformat the dataset if a processing script is provided
-    if reformat_script:
+    if transform_script:
         if isinstance(dataset, (Dataset, IterableDataset)):
-            dataset = reformat_dataset(dataset, reformat_script)
+            dataset = reformat_dataset(dataset, transform_script)
         if isinstance(dataset, (DatasetDict, IterableDatasetDict)):
             for split_name in dataset:
-                dataset[split_name] = reformat_dataset(dataset[split_name], reformat_script) # pyright: ignore[reportArgumentType]
+                dataset[split_name] = reformat_dataset(dataset[split_name], transform_script) # pyright: ignore[reportArgumentType]
 
     # Split the dataset if split sizes are provided
     if split_sizes:

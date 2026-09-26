@@ -68,7 +68,7 @@ def setup_arg_parser():
     parser.add_argument("--dataset_config", type=str, default=None, help="Configuration of the dataset to use")
     parser.add_argument("--dataset_train_split_name", type=str, default="train", help="Name of the training split")
     parser.add_argument("--dataset_test_split_name", type=str, default=None, help="Name of the test split")
-    parser.add_argument("--reformat_dataset", type=str, default=None, help="Reformat the dataset using the specified script. The script must contain a 'format_example' function that takes a batch of examples and returns a batch of formatted examples. Example: ```\npython def format_example(batch):\n    if 'text' in batch:\n        batch['text'] = [text.lower() for text in batch['text']]\n    return batch\n```")
+    parser.add_argument("--dataset_transform_script", type=str, default=None, help="Path to a Python script with functions for filtering and formatting the dataset.")
     parser.add_argument("--dataset_size_train", type=int, default=0, help="Number of examples to use for the training set. Default is to use whatever is left after the splits.")
     parser.add_argument("--dataset_size_eval", type=int, default=None, help="Number of examples to use for the validation set used during training. Keep it small so in-training evals don't take too long")
     parser.add_argument("--dataset_size_test", type=int, default=None, help="Number of examples to use for the test set used after training. Should be a decent size.")

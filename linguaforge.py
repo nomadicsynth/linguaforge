@@ -463,7 +463,7 @@ if args.dataset_size_train is not None:
 
 dataset = prepare_dataset(
     dataset=dataset,
-    reformat_dataset=args.reformat_dataset,
+    transform_script=args.dataset_transform_script,
     split_sizes=split_sizes,
     split_priority=split_priority,
     shuffle=args.shuffle,
@@ -489,7 +489,7 @@ if is_main_process:
                 "dataset_config": args.dataset_config,
                 "dataset_split_sizes": split_sizes,
                 "dataset_shuffle_seed": args.dataset_shuffle_seed if args.dataset_shuffle_seed is not None else args.seed,
-                "dataset_reformat": args.reformat_dataset,
+                "dataset_transform_script": args.dataset_transform_script,
                 "dataset_save_path": args.dataset_save_path,
                 "shuffle": args.shuffle,
                 "batch_size": args.dataset_batch_size if args.dataset_batch_size is not None else args.batch_size,
