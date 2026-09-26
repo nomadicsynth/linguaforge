@@ -51,8 +51,10 @@ from transformers import (AutoConfig, AutoModelForCausalLM, AutoTokenizer,
                           EarlyStoppingCallback, PreTrainedModel)
 from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.trainer_utils import EvalPrediction
-from transformers.utils import PaddingStrategy, logging
-from trl import SFTConfig, SFTTrainer
+from transformers.utils import logging
+from transformers.utils.generic import PaddingStrategy
+from trl.trainer.sft_config import SFTConfig
+from trl.trainer.sft_trainer import SFTTrainer
 
 # Ignore the warning about gathering scalars
 warnings.filterwarnings(
