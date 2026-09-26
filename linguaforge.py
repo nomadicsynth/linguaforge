@@ -118,7 +118,10 @@ if is_main_process and not os.path.exists(results_dir):
 print(f"Using device: {device}")
 
 # Load the evaluation metrics
-metric_accuracy = evaluate.load("accuracy")
+try:
+    metric_accuracy = evaluate.load("accuracy")
+except Exception as e:
+    raise RuntimeError(f"Failed to load the 'accuracy' metric from the evaluate library: {e}")
 
 
 # Compute the evaluation metrics
@@ -127,11 +130,12 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
         # Get the logits, attention mask, and labels
         logits = eval_pred.predictions.detach()
         metric_labels = eval_pred.label_ids.detach()
-        attention_mask = eval_pred.inputs["attention_mask"].detach()
+        attention_mask = eval_pred.inputs["attention_mask"].detach() or None
 
         # Shift the labels and attention mask to the left
         metric_labels = metric_labels[..., 1:]
-        attention_mask = attention_mask[..., 1:]
+        if attention_mask is not None:
+            attention_mask = attention_mask[..., 1:]
         logits = logits[..., :-1, :]
 
         predictions = torch.argmax(logits, dim=-1)
@@ -145,7 +149,8 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
         # Flatten the input and move to CPU
         metric_labels = metric_labels.flatten().cpu()
         predictions = predictions.flatten().cpu()
-        attention_mask = attention_mask.flatten().cpu()
+        if attention_mask is not None:
+            attention_mask = attention_mask.flatten().cpu()
 
         metric_accuracy.add_batch(predictions=predictions, references=metric_labels)
 
@@ -154,7 +159,7 @@ def compute_metrics(eval_pred: EvalPrediction, compute_result=False):
 
     if compute_result:
         return {
-            "accuracy": metric_accuracy.compute()["accuracy"],
+            "accuracy": metric_accuracy.compute()["accuracy"], # pyright: ignore[reportOptionalSubscript]
         }
     else:
         return {}
