@@ -29,6 +29,87 @@ def verify_config(config_class, yaml_content):
         return False
 
 
+def parse_params(doc: str) -> dict[str, str]:
+    params: dict[str, str] = {}
+    current = None
+    for line in doc.splitlines():
+        if line.startswith('        '):             # 8 spaces → description line
+            if current is not None:
+                params[current] = (params[current] + ' ' + line.strip()).strip()
+        elif line[:4] == '    ' and line[4:5] != ' ':  # exactly 4 spaces → key line
+            current = line.strip().split()[0]
+            params[current] = " ".join(line.strip().split()[1:])  # type hint
+    return params
+
+
+def wizard(config, keep_defaults: bool, ignore_keys: list, depth: int=0):
+    output_indent = "  " * depth
+    config_dict = {}
+    docs = parse_params(config.__doc__ or "")
+    if isinstance(config, dict):
+        items = config.items()
+    else:
+        items = config.to_dict().items()
+    for key, value in items:
+        if isinstance(key, str) and any(k in key for k in ignore_keys):
+            print(f"{output_indent}Skipping {key} (internal parameter)")
+            continue
+        try:
+            key_doc = docs.get(key, None)
+            if key_doc is not None:
+                print(f"{output_indent}Documentation for {key}: {key_doc}")
+        except AttributeError:
+            pass
+
+        try:
+            value_type_hint = config.__dataclass_fields__.get(key).type
+            if not isinstance(value, (dict, list)):
+                print(f"{output_indent}Type hint for {key}: {value_type_hint}")
+        except AttributeError:
+            value_type_hint = ''
+            pass
+
+        # if it's nested, recurse
+        if isinstance(value, dict):
+            print(f"{output_indent}{key} is nested. Recursing into it.")
+            ret = wizard(value, keep_defaults, ignore_keys, depth=depth + 1)
+            if len(ret) > 0:
+                config_dict[key] = ret
+            continue
+
+        # handle lists
+        if isinstance(value, list) or "list[str]" in str(value_type_hint):
+            print(f"{output_indent}{key} is a list. Please enter comma-separated values.")
+            user_input = input(f"{output_indent}{key} (default: {value}): ")
+            if user_input:
+                config_dict[key] = [item.strip() for item in user_input.split(",")]
+            else:
+                if keep_defaults:
+                    config_dict[key] = value
+            continue
+
+        # handle booleans
+        if isinstance(value, bool):
+            user_input = input(f"{output_indent}{key} (default: {value}) [y/n]: ")
+            if user_input.lower() in ["y", "yes", "t", "true"]:
+                config_dict[key] = True
+            elif user_input.lower() in ["n", "no", "f", "false"]:
+                config_dict[key] = False
+            else:
+                if keep_defaults:
+                    config_dict[key] = value
+            continue
+
+        user_input = input(f"{output_indent}{key} (default: {value}): ")
+        if user_input:
+            config_dict[key] = user_input
+        else:
+            if keep_defaults:
+                config_dict[key] = value
+
+    return config_dict
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate default YAML config for transformers model config classes"
@@ -70,78 +151,21 @@ def main():
 
     # Generate YAML
     config = config_class()
-    config_dict = config.to_dict()
 
-    # Remove `transformers_version` if present
-    if "transformers_version" in config_dict:
-        del config_dict["transformers_version"]
+    ignore_keys = ["_name_or_path", "model_type", "architectures", "transformers_version"]
 
-    if args.output is None or args.output == "":
-        args.output = f"config_{config_dict.get('model_type', 'default')}.yaml"
-
-    def wizard(config_dict, depth=0):
-        output_indent = "  " * depth
-        new_config_dict = {}
-        for key, value in config_dict.items():
-            try:
-                key_doc = config.__dataclass_fields__.get(key).__doc__
-                if key_doc is not None and "The type of the None singleton." not in key_doc:
-                    print(f"{output_indent}Documentation for {key}: {key_doc}")
-            except AttributeError:
-                pass
-
-            try:
-                value_type_hint = config.__dataclass_fields__.get(key).type
-                if not isinstance(value, (dict, list)):
-                    print(f"{output_indent}Type hint for {key}: {value_type_hint}")
-            except AttributeError:
-                value_type_hint = ''
-                pass
-
-            # if it's nested, recurse
-            if isinstance(value, dict):
-                print(f"{output_indent}{key} is nested. Recursing into it.")
-                ret = wizard(value, depth=depth+1)
-                if len(ret) > 0:
-                    new_config_dict[key] = ret
-                continue
-
-            # handle lists
-            if isinstance(value, list) or "list[str]" in str(value_type_hint):
-                print(f"{output_indent}{key} is a list. Please enter comma-separated values.")
-                user_input = input(f"{output_indent}{key} (default: {value}): ")
-                if user_input:
-                    new_config_dict[key] = [item.strip() for item in user_input.split(",")]
-                else:
-                    if args.keep_defaults:
-                        new_config_dict[key] = value
-                continue
-
-            # handle booleans
-            if isinstance(value, bool):
-                user_input = input(f"{output_indent}{key} (default: {value}) [y/n]: ")
-                if user_input.lower() in ["y", "yes", "t", "true"]:
-                    new_config_dict[key] = True
-                elif user_input.lower() in ["n", "no", "f", "false"]:
-                    new_config_dict[key] = False
-                else:
-                    if args.keep_defaults:
-                        new_config_dict[key] = value
-                continue
-
-            user_input = input(f"{output_indent}{key} (default: {value}): ")
-            if user_input:
-                new_config_dict[key] = user_input
-            else:
-                if args.keep_defaults:
-                    new_config_dict[key] = value
-
-        return new_config_dict
-    
     # Run wizard mode if specified
     if args.wizard:
         print(f"Running in wizard mode for {args.config_class}. Press Enter to keep default values.")
-        config_dict = wizard(config_dict)
+        config_dict = wizard(config, args.keep_defaults, ignore_keys=ignore_keys)
+    else:
+        config_dict = config.to_dict()
+        # Remove ignored keys
+        for key in ignore_keys:
+            config_dict.pop(key, None)
+
+    if args.output is None or args.output == "":
+        args.output = f"config_{config.model_type}.yaml"
 
     yaml_output = yaml.dump(config_dict, default_flow_style=False, sort_keys=False)
 
