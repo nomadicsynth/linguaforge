@@ -152,7 +152,7 @@ def main():
     # Generate YAML
     config = config_class()
 
-    ignore_keys = ["_name_or_path", "model_type", "architectures", "transformers_version"]
+    ignore_keys = ["_name_or_path", "model_type", "transformers_version"]
 
     # Run wizard mode if specified
     if args.wizard:
